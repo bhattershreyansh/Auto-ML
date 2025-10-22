@@ -6,7 +6,7 @@ import shutil
 import pandas as pd
 from pathlib import Path
 import numpy as np
-from typing import Optional
+from typing import Optional, Dict, Any
 import joblib
 
 # Import your existing services
@@ -71,6 +71,10 @@ class EvaluationRequest(BaseModel):
                 "task_type": "classification"
             }
         }
+
+class PredictRequest(BaseModel):
+    model_path: str           # e.g., "uploads/trained_RandomForestClassifier_diabetes_Outcome.joblib"
+    features: Dict[str, Any]
 
 
 
@@ -365,10 +369,73 @@ async def evaluate_trained_model(request: EvaluationRequest):
         print(f"Error in evaluate_trained_model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@app.post("/predict")
+async def predict_single(request: PredictRequest):
+    try:
+        # Normalize model path
+        model_path = request.model_path
+        if model_path.startswith("uploads/uploads/"):
+            model_path = model_path.replace("uploads/uploads/", "uploads/", 1)
+        elif not model_path.startswith("uploads/"):
+            model_path = f"uploads/{model_path}"
 
+        model_file_path = Path(model_path)
+        if not model_file_path.is_absolute():
+            model_file_path = UPLOAD_DIR / model_file_path.name
+        if not model_file_path.exists():
+            alt = UPLOAD_DIR / Path(request.model_path).name
+            if alt.exists():
+                model_file_path = alt
+            else:
+                raise HTTPException(status_code=404, detail=f"Model not found: {model_file_path}")
 
+        # Load model
+        model = joblib.load(model_file_path)
 
+        # Build single-row DataFrame from incoming features
+        import pandas as pd
+        import numpy as np
+        X = pd.DataFrame([request.features])
 
+        # One-hot encode like training
+        X = pd.get_dummies(X)
+        X.replace([np.inf, -np.inf], np.nan, inplace=True)
+        X = X.fillna(0)
+
+        # Align columns to training feature space
+        feature_cols = getattr(model, "feature_columns_", None)
+        if feature_cols is None:
+            raise HTTPException(status_code=400, detail="Model missing feature_columns_. Retrain with updated trainer.")
+        X = X.reindex(columns=feature_cols, fill_value=0)
+
+        # Predict
+        y_pred = model.predict(X)[0]
+        resp: Dict[str, Any] = { "prediction_raw": int(y_pred) if hasattr(y_pred, "item") else y_pred }
+
+        # If classifier and we stored original classes, map back
+        target_classes = getattr(model, "target_classes_", None)
+        if target_classes is not None:
+            try:
+                resp["prediction_label"] = target_classes[int(y_pred)].item() if hasattr(target_classes[int(y_pred)], "item") else target_classes[int(y_pred)]
+            except Exception:
+                pass
+
+        # Probabilities if available
+        if hasattr(model, "predict_proba"):
+            try:
+                proba = model.predict_proba(X)[0]
+                resp["probabilities"] = proba.tolist()
+                if target_classes is not None:
+                    resp["class_order"] = [c.item() if hasattr(c, "item") else c for c in target_classes]
+            except Exception:
+                pass
+
+        return resp
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health")
