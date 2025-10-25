@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Body,APIRouter
+from fastapi import FastAPI, File, UploadFile, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -6,8 +6,9 @@ import shutil
 import pandas as pd
 from pathlib import Path
 import numpy as np
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any,Union
 import joblib
+import logging
 
 # Import your existing services
 from services.analyzer import analyze_dataset
@@ -31,37 +32,53 @@ app.add_middleware(
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+logging.basicConfig(level=logging.INFO)
+
+
 # Request models
 class AnalyzeRequest(BaseModel):
     filepath: str
 
+
 class CleanRequest(BaseModel):
     filepath: str
+
 
 class ModelSelectionRequest(BaseModel):
     filepath: str
     target_column: str
+
+
 class TrainingRequest(BaseModel):
     filepath: str
     target_column: str
     model_name: str
     test_size: Optional[float] = 0.2
-    
+    tune_hyperparams: Optional[Union[bool, str]] = False  # NEW: False, 'grid', or 'optuna'
+    cv_folds: Optional[int] = 5  # NEW
+    n_trials: Optional[int] = 50  # NEW: For Optuna
+
     class Config:
         schema_extra = {
             "example": {
                 "filepath": "diabetes_cleaned.csv",
                 "target_column": "Outcome",
                 "model_name": "RandomForestClassifier",
-                "test_size": 0.2
+                "test_size": 0.2,
+                "tune_hyperparams": "grid",  # or "optuna" or False
+                "cv_folds": 5,
+                "n_trials": 50
             }
         }
+
+
+
 class EvaluationRequest(BaseModel):
     model_path: str
     test_data_path: str
     target_column: str
     task_type: Optional[str] = None
-    
+
     class Config:
         schema_extra = {
             "example": {
@@ -72,10 +89,10 @@ class EvaluationRequest(BaseModel):
             }
         }
 
-class PredictRequest(BaseModel):
-    model_path: str           # e.g., "uploads/trained_RandomForestClassifier_diabetes_Outcome.joblib"
-    features: Dict[str, Any]
 
+class PredictRequest(BaseModel):
+    model_path: str
+    features: Dict[str, Any]
 
 
 @app.post("/upload")
@@ -85,7 +102,6 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
     
     file_path = UPLOAD_DIR / file.filename
-    
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
@@ -95,19 +111,18 @@ async def upload_file(file: UploadFile = File(...)):
         "message": "File uploaded successfully"
     }
 
+
 @app.post("/analyze")
 async def analyze_data(request: AnalyzeRequest):
     """Analyze the uploaded dataset"""
     try:
-        # Convert relative path to absolute path
         absolute_path = UPLOAD_DIR / Path(request.filepath).name
-        
-        # Check if file exists
         if not absolute_path.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {absolute_path}")
         
         results = analyze_dataset(str(absolute_path))
         return results
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -116,154 +131,162 @@ async def analyze_data(request: AnalyzeRequest):
 async def clean_dataset(request: CleanRequest):
     """Clean the dataset"""
     try:
-        cleaned_path = clean_data(request.filepath)
+        # Normalize filepath
+        filepath = request.filepath
+        if not filepath.startswith("uploads/"):
+            filepath = f"uploads/{filepath}"
+        
+        # Check if file exists before calling clean_data
+        file_path = Path(filepath)
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=404, 
+                detail=f"File not found: {filepath}"
+            )
+        
+        cleaned_path = clean_data(str(file_path))
+        
+        # Check if cleaning actually succeeded
+        if not cleaned_path or cleaned_path == "":
+            raise HTTPException(
+                status_code=500, 
+                detail="Data cleaning failed - empty result returned"
+            )
+        
         return {
             "cleaned_filepath": cleaned_path,
             "message": "Data cleaned successfully"
         }
+    
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logging.error(f"Error in /clean endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @app.post("/select-model")
 async def select_best_model(request: ModelSelectionRequest):
     """Select the best model for the dataset"""
     try:
-        print(f"Received model selection request for: {request.filepath}, target: {request.target_column}")
+        logging.info(f"Received model selection request for: {request.filepath}, target: {request.target_column}")
         
-        # Normalize the filepath to avoid double uploads folder
+        # Normalize filepath
         filepath = request.filepath
-        
-        # Handle different filepath formats from frontend
         if filepath.startswith("uploads/uploads/"):
-            # Fix double uploads path
             filepath = filepath.replace("uploads/uploads/", "uploads/", 1)
         elif not filepath.startswith("uploads/"):
-            # Add uploads prefix if missing
             filepath = f"uploads/{filepath}"
         
-        # Build absolute path
         input_file_path = Path(filepath)
         if not input_file_path.is_absolute():
             input_file_path = UPLOAD_DIR / input_file_path.name
         
-        print(f"Normalized filepath: {filepath}")
-        print(f"Looking for file at: {input_file_path.absolute()}")
-        
-        # Check if file exists
         if not input_file_path.exists():
-            # Try alternative path construction
             alternative_path = UPLOAD_DIR / Path(request.filepath).name
-            print(f"Trying alternative path: {alternative_path.absolute()}")
-            
             if alternative_path.exists():
                 input_file_path = alternative_path
-                print(f"Found file at alternative path: {input_file_path.absolute()}")
             else:
                 raise HTTPException(
-                    status_code=404, 
-                    detail=f"File not found at: {input_file_path.absolute()} or {alternative_path.absolute()}"
+                    status_code=404,
+                    detail=f"File not found at: {input_file_path.absolute()}"
                 )
         
-        print("File found, calling select_model...")
         model_suggestions = select_model(str(input_file_path), request.target_column)
-        
         if not model_suggestions:
-            raise HTTPException(status_code=500, detail="Model selection failed - no suggestions returned")
+            raise HTTPException(status_code=500, detail="Model selection failed")
         
-        print(f"Model selection completed: {model_suggestions.get('best_model', {}).get('name', 'Unknown')}")
         return model_suggestions
-        
+    
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
-    except ValueError as e:
-        print(f"Validation error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
-    except FileNotFoundError as e:
-        print(f"File not found error: {str(e)}")
-        raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
     except Exception as e:
-        print(f"Error in select_best_model: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-
-import numpy as np
 
 @app.post("/train")
 async def train_selected_model(request: TrainingRequest):
-    """Train the selected model"""
+    """Train the selected model using sklearn Pipeline"""
     try:
-        # --- KEY CHANGE: Unify path logic using pathlib ---
-        # No need to check if it starts with 'uploads/', this handles both cases.
+        # Normalize filepath
         filename = Path(request.filepath).name
         input_file_path = UPLOAD_DIR / filename
-
-        print(f"Looking for file at: {input_file_path}")
-
+        
+        logging.info(f"Looking for file at: {input_file_path}")
+        
         if not input_file_path.exists():
             raise HTTPException(
                 status_code=404,
                 detail=f"File not found: {input_file_path}"
             )
-
-        print("File found, calling train_model...")
-        metrics, trained_model = train_model(
+        
+        logging.info("File found, calling train_model...")
+        
+        # NEW: train_model now returns (metrics, pipeline, label_encoder)
+        metrics, trained_pipeline, label_encoder = train_model(
             filepath=str(input_file_path),
             target_column=request.target_column,
             model_name=request.model_name,
-            test_size=getattr(request, 'test_size', 0.2)
+            test_size=getattr(request, 'test_size', 0.2),
+            tune_hyperparams=getattr(request, 'tune_hyperparams', False),  # NEW
+            cv_folds=getattr(request, 'cv_folds', 5),  # NEW
+            n_trials=getattr(request, 'n_trials', 50)  # NEW
         )
-
-        if trained_model is None:
-            raise HTTPException(status_code=500, detail="Model training failed unexpectedly.")
-
-        # --- KEY CHANGE: Simplified and robust model saving ---
-        # Create a clear model filename
-        model_filename = f"trained_{request.model_name}_{Path(filename).stem}_{request.target_column}.joblib"
         
-        # Define the full, absolute path to save the model
+        if trained_pipeline is None:
+            raise HTTPException(status_code=500, detail="Model training failed unexpectedly.")
+        
+        # Create model filename
+        model_filename = f"trained_{request.model_name}_{Path(filename).stem}_{request.target_column}.joblib"
         model_save_path = UPLOAD_DIR / model_filename
         
-        # Save the model
-        joblib.dump(trained_model, model_save_path)
-        print(f"Model trained and saved to: {model_save_path}")
-
-        # For the API response, return a simple relative path string that the frontend can use.
-        relative_model_path = f"uploads/{model_filename}"
-
+        # Save the complete pipeline
+        joblib.dump(trained_pipeline, model_save_path)
+        logging.info(f"✅ Pipeline saved to: {model_save_path}")
+        
+        # Save label encoder separately if it exists (for classification)
+        if label_encoder is not None:
+            encoder_filename = f"encoder_{request.model_name}_{Path(filename).stem}_{request.target_column}.joblib"
+            encoder_save_path = UPLOAD_DIR / encoder_filename
+            joblib.dump(label_encoder, encoder_save_path)
+            logging.info(f"✅ Label encoder saved to: {encoder_save_path}")
+        else:
+            encoder_filename = None
+        
         return {
             "message": "Model trained successfully",
             "metrics": metrics,
-            "model_path": relative_model_path, # Simple string path for frontend
+            "model_path": f"uploads/{model_filename}",
+            "encoder_path": f"uploads/{encoder_filename}" if encoder_filename else None,
             "model_filename": model_filename,
             "model_name": request.model_name,
             "target_column": request.target_column
         }
-
+    
     except ValueError as e:
-        # This will now catch ValueErrors from your trainer, like from train_test_split
-        print(f"Validation error in training: {e}")
+        logging.warning(f"Validation error in training: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # General catch-all for other unexpected errors
-        print(f"An unexpected error occurred in /train: {e}")
-        raise HTTPException(status_code=500, detail=f"An internal server error occurred: {e}")
+        logging.error(f"Error in /train: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/evaluate")
 async def evaluate_trained_model(request: EvaluationRequest):
-    """Evaluate a trained model"""
+    """Evaluate a trained pipeline on test data"""
     try:
-        print(f"Received evaluation request for model: {request.model_path}")
+        logging.info(f"Received evaluation request for model: {request.model_path}")
         
-        # Normalize model path to avoid double uploads folder
+        # Normalize paths
         model_path = request.model_path
         if model_path.startswith("uploads/uploads/"):
             model_path = model_path.replace("uploads/uploads/", "uploads/", 1)
         elif not model_path.startswith("uploads/"):
             model_path = f"uploads/{model_path}"
         
-        # Normalize test data path
         test_data_path = request.test_data_path
         if test_data_path.startswith("uploads/uploads/"):
             test_data_path = test_data_path.replace("uploads/uploads/", "uploads/", 1)
@@ -279,98 +302,84 @@ async def evaluate_trained_model(request: EvaluationRequest):
         if not test_file_path.is_absolute():
             test_file_path = UPLOAD_DIR / test_file_path.name
         
-        print(f"Normalized model path: {model_path}")
-        print(f"Normalized test data path: {test_data_path}")
-        print(f"Looking for model at: {model_file_path.absolute()}")
-        print(f"Looking for test data at: {test_file_path.absolute()}")
-        
-        # Check if model file exists with fallback
+        # Check files exist
         if not model_file_path.exists():
             alternative_model_path = UPLOAD_DIR / Path(request.model_path).name
-            print(f"Trying alternative model path: {alternative_model_path.absolute()}")
-            
             if alternative_model_path.exists():
                 model_file_path = alternative_model_path
-                print(f"Found model at alternative path: {model_file_path.absolute()}")
             else:
                 raise HTTPException(
-                    status_code=404, 
-                    detail=f"Model file not found at: {model_file_path.absolute()} or {alternative_model_path.absolute()}"
+                    status_code=404,
+                    detail=f"Model file not found at: {model_file_path.absolute()}"
                 )
         
-        # Check if test data file exists with fallback
         if not test_file_path.exists():
             alternative_test_path = UPLOAD_DIR / Path(request.test_data_path).name
-            print(f"Trying alternative test data path: {alternative_test_path.absolute()}")
-            
             if alternative_test_path.exists():
                 test_file_path = alternative_test_path
-                print(f"Found test data at alternative path: {test_file_path.absolute()}")
             else:
                 raise HTTPException(
-                    status_code=404, 
-                    detail=f"Test data file not found at: {test_file_path.absolute()} or {alternative_test_path.absolute()}"
+                    status_code=404,
+                    detail=f"Test data file not found at: {test_file_path.absolute()}"
                 )
         
-        # Load model
-        import joblib
-        model = joblib.load(model_file_path)
-        print("Model loaded successfully")
+        # Load pipeline (not just model)
+        pipeline = joblib.load(model_file_path)
+        logging.info("Pipeline loaded successfully")
         
         # Load test data
         df_test = pd.read_csv(test_file_path)
-        print(f"Test data loaded: {df_test.shape}")
+        logging.info(f"Test data loaded: {df_test.shape}")
         
         if request.target_column not in df_test.columns:
             raise HTTPException(
-                status_code=400, 
-                detail=f"Target column '{request.target_column}' not found in test data. Available columns: {list(df_test.columns)}"
+                status_code=400,
+                detail=f"Target column '{request.target_column}' not found in test data"
             )
         
-        # Prepare test data (same preprocessing as training)
+        # Prepare test data - NO PREPROCESSING NEEDED (pipeline handles it)
         X_test = df_test.drop(columns=[request.target_column])
         y_test = df_test[request.target_column]
         
-        # Apply same preprocessing as in training
-        X_test = pd.get_dummies(X_test)
-        X_test.replace([np.inf, -np.inf], np.nan, inplace=True)
-        
-        # Handle missing values by dropping or filling
-        valid_idx = X_test.dropna().index
+        # Drop rows with missing target
+        valid_idx = y_test.dropna().index
         X_test = X_test.loc[valid_idx]
         y_test = y_test.loc[valid_idx]
         
         if len(X_test) == 0:
-            raise HTTPException(status_code=400, detail="No valid test samples after preprocessing")
+            raise HTTPException(status_code=400, detail="No valid test samples")
         
-        print(f"Evaluating model on {len(X_test)} test samples...")
-        results = evaluate_model(model, X_test, y_test, task_type=request.task_type, plot=False)
+        logging.info(f"Evaluating pipeline on {len(X_test)} test samples...")
         
-        print("Model evaluation completed successfully")
+        # Evaluate (pipeline handles preprocessing automatically)
+        results = evaluate_model(
+            pipeline,
+            X_test,
+            y_test,
+            task_type=request.task_type,
+            plot=False
+        )
+        
+        logging.info("✅ Pipeline evaluation completed successfully")
         
         return {
             "evaluation_results": results,
             "test_samples": len(X_test),
             "model_used": str(model_file_path.name),
             "test_data_used": str(test_file_path.name),
-            "message": "Model evaluation completed successfully"
+            "message": "Pipeline evaluation completed successfully"
         }
-        
+    
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
-    except ValueError as e:
-        print(f"Validation error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
-    except FileNotFoundError as e:
-        print(f"File not found error: {str(e)}")
-        raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
     except Exception as e:
-        print(f"Error in evaluate_trained_model: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logging.error(f"Error in evaluate_trained_model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/predict")
 async def predict_single(request: PredictRequest):
+    """Make prediction using trained pipeline"""
     try:
         # Normalize model path
         model_path = request.model_path
@@ -378,69 +387,52 @@ async def predict_single(request: PredictRequest):
             model_path = model_path.replace("uploads/uploads/", "uploads/", 1)
         elif not model_path.startswith("uploads/"):
             model_path = f"uploads/{model_path}"
-
+        
         model_file_path = Path(model_path)
         if not model_file_path.is_absolute():
             model_file_path = UPLOAD_DIR / model_file_path.name
+        
         if not model_file_path.exists():
             alt = UPLOAD_DIR / Path(request.model_path).name
             if alt.exists():
                 model_file_path = alt
             else:
                 raise HTTPException(status_code=404, detail=f"Model not found: {model_file_path}")
-
-        # Load model
-        model = joblib.load(model_file_path)
-
+        
+        # Load pipeline
+        pipeline = joblib.load(model_file_path)
+        
         # Build single-row DataFrame from incoming features
-        import pandas as pd
-        import numpy as np
         X = pd.DataFrame([request.features])
-
-        # One-hot encode like training
-        X = pd.get_dummies(X)
-        X.replace([np.inf, -np.inf], np.nan, inplace=True)
-        X = X.fillna(0)
-
-        # Align columns to training feature space
-        feature_cols = getattr(model, "feature_columns_", None)
-        if feature_cols is None:
-            raise HTTPException(status_code=400, detail="Model missing feature_columns_. Retrain with updated trainer.")
-        X = X.reindex(columns=feature_cols, fill_value=0)
-
-        # Predict
-        y_pred = model.predict(X)[0]
-        resp: Dict[str, Any] = { "prediction_raw": int(y_pred) if hasattr(y_pred, "item") else y_pred }
-
-        # If classifier and we stored original classes, map back
-        target_classes = getattr(model, "target_classes_", None)
-        if target_classes is not None:
-            try:
-                resp["prediction_label"] = target_classes[int(y_pred)].item() if hasattr(target_classes[int(y_pred)], "item") else target_classes[int(y_pred)]
-            except Exception:
-                pass
-
+        
+        # Pipeline handles all preprocessing automatically!
+        y_pred = pipeline.predict(X)[0]
+        
+        resp: Dict[str, Any] = {
+            "prediction": int(y_pred) if isinstance(y_pred, (np.integer, int)) else float(y_pred)
+        }
+        
         # Probabilities if available
-        if hasattr(model, "predict_proba"):
+        if hasattr(pipeline, "predict_proba"):
             try:
-                proba = model.predict_proba(X)[0]
+                proba = pipeline.predict_proba(X)[0]
                 resp["probabilities"] = proba.tolist()
-                if target_classes is not None:
-                    resp["class_order"] = [c.item() if hasattr(c, "item") else c for c in target_classes]
-            except Exception:
-                pass
-
+            except Exception as e:
+                logging.warning(f"Could not get probabilities: {e}")
+        
         return resp
-
+    
     except HTTPException:
         raise
     except Exception as e:
+        logging.error(f"Error in predict_single: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health")
 async def health_check():
     return {"status": "AutoML API is running"}
+
 
 if __name__ == "__main__":
     import uvicorn
