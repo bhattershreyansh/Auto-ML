@@ -6,7 +6,7 @@ import shutil
 import pandas as pd
 from pathlib import Path
 import numpy as np
-from typing import Optional, Dict, Any,Union
+from typing import Optional, Dict, Any,Union,List
 import joblib
 import logging
 
@@ -16,13 +16,14 @@ from services.cleaner import clean_data
 from services.model_selector import select_model
 from services.trainer import train_model
 from services.tester import evaluate_model
+from services.model_comparator import compare_models
 
 app = FastAPI(title="AutoML API", version="1.0.0")
 
 # CORS middleware for React
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=["*"],  # Vite dev server
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,6 +95,25 @@ class PredictRequest(BaseModel):
     model_path: str
     features: Dict[str, Any]
 
+class ModelComparisonRequest(BaseModel):
+    filepath: str
+    target_column: str
+    model_names: Optional[List[str]] = None
+    test_size: Optional[float] = 0.2
+    tune_hyperparams: Optional[bool] = False
+    cv_folds: Optional[int] = 3
+
+# class ExplainRequest(BaseModel):
+#     model_path: str
+#     data_path: str
+#     target_column: str
+#     max_display: Optional[int] = 10
+#     sample_size: Optional[int] = 100
+
+# class ExplainPredictionRequest(BaseModel):
+#     model_path: str
+
+
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -107,7 +127,7 @@ async def upload_file(file: UploadFile = File(...)):
     
     return {
         "filename": file.filename,
-        "filepath": str(file_path),
+        "filepath": str(file_path).replace("\\", "/"),  # Ensure forward slashes for consistency
         "message": "File uploaded successfully"
     }
 
@@ -131,9 +151,13 @@ async def analyze_data(request: AnalyzeRequest):
 async def clean_dataset(request: CleanRequest):
     """Clean the dataset"""
     try:
-        # Normalize filepath
-        filepath = request.filepath
-        if not filepath.startswith("uploads/"):
+        # Normalize filepath - handle both forward and back slashes
+        filepath = request.filepath.replace("\\", "/")  # Convert backslashes to forward slashes
+        
+        # Remove duplicate uploads/ prefix if it exists
+        if filepath.startswith("uploads/uploads/"):
+            filepath = filepath.replace("uploads/uploads/", "uploads/", 1)
+        elif not filepath.startswith("uploads/"):
             filepath = f"uploads/{filepath}"
         
         # Check if file exists before calling clean_data
@@ -174,8 +198,10 @@ async def select_best_model(request: ModelSelectionRequest):
     try:
         logging.info(f"Received model selection request for: {request.filepath}, target: {request.target_column}")
         
-        # Normalize filepath
-        filepath = request.filepath
+        # Normalize filepath - handle both forward and back slashes
+        filepath = request.filepath.replace("\\", "/")  # Convert backslashes to forward slashes
+        
+        # Remove duplicate uploads/ prefix if it exists
         if filepath.startswith("uploads/uploads/"):
             filepath = filepath.replace("uploads/uploads/", "uploads/", 1)
         elif not filepath.startswith("uploads/"):
@@ -280,14 +306,14 @@ async def evaluate_trained_model(request: EvaluationRequest):
     try:
         logging.info(f"Received evaluation request for model: {request.model_path}")
         
-        # Normalize paths
-        model_path = request.model_path
+        # Normalize paths - handle both forward and back slashes
+        model_path = request.model_path.replace("\\", "/")  # Convert backslashes to forward slashes
         if model_path.startswith("uploads/uploads/"):
             model_path = model_path.replace("uploads/uploads/", "uploads/", 1)
         elif not model_path.startswith("uploads/"):
             model_path = f"uploads/{model_path}"
         
-        test_data_path = request.test_data_path
+        test_data_path = request.test_data_path.replace("\\", "/")  # Convert backslashes to forward slashes
         if test_data_path.startswith("uploads/uploads/"):
             test_data_path = test_data_path.replace("uploads/uploads/", "uploads/", 1)
         elif not test_data_path.startswith("uploads/"):
@@ -381,8 +407,8 @@ async def evaluate_trained_model(request: EvaluationRequest):
 async def predict_single(request: PredictRequest):
     """Make prediction using trained pipeline"""
     try:
-        # Normalize model path
-        model_path = request.model_path
+        # Normalize model path - handle both forward and back slashes
+        model_path = request.model_path.replace("\\", "/")  # Convert backslashes to forward slashes
         if model_path.startswith("uploads/uploads/"):
             model_path = model_path.replace("uploads/uploads/", "uploads/", 1)
         elif not model_path.startswith("uploads/"):
@@ -426,6 +452,30 @@ async def predict_single(request: PredictRequest):
         raise
     except Exception as e:
         logging.error(f"Error in predict_single: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/compare-models")
+async def compare_multiple_models(request: ModelComparisonRequest):
+    """Compare all eligible models and rank by score."""
+    try:
+        filename = Path(request.filepath).name
+        input_file_path = UPLOAD_DIR / filename
+
+        if not input_file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {input_file_path}")
+
+        result = compare_models(
+            filepath=str(input_file_path),
+            target_column=request.target_column,
+            model_names=request.model_names,
+            test_size=request.test_size,
+            tune_hyperparams=request.tune_hyperparams,
+            cv_folds=request.cv_folds
+        )
+
+        return {"message": "Model comparison complete", "comparison": result}
+    except Exception as e:
+        logging.error(f"Comparison error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

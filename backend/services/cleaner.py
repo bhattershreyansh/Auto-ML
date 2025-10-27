@@ -61,7 +61,7 @@ def clean_data(filepath: str) -> str:
         df.to_csv(cleaned_path, index=False)
         
         logging.info(f"✅ Data cleaned and saved to: {cleaned_path}")
-        return cleaned_path
+        return str(cleaned_path).replace("\\", "/")  # Ensure forward slashes for consistency
     
     except Exception as e:
         logging.error(f"❌ Error cleaning data: {e}")
