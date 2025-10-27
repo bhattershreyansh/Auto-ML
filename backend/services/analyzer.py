@@ -107,10 +107,10 @@ def check_class_imbalance(df: pd.DataFrame, target_col: str) -> Dict[str, Any]:
     total = len(df)
     
     imbalance_info = {
-        "class_distribution": value_counts.to_dict(),
-        "class_percentages": (value_counts / total * 100).round(2).to_dict(),
-        "is_imbalanced": (value_counts.max() / value_counts.min()) > 3 if len(value_counts) > 1 else False
-    }
+    "class_distribution": value_counts.to_dict(),
+    "class_percentages": (value_counts / total * 100).round(2).to_dict(),
+    "is_imbalanced": bool((value_counts.max() / value_counts.min()) > 3) if len(value_counts) > 1 else False
+}
     
     return imbalance_info
 

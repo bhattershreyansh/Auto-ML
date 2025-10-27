@@ -14,6 +14,8 @@ from sklearn.ensemble import (
     GradientBoostingClassifier,
     GradientBoostingRegressor,
 )
+from xgboost import XGBClassifier, XGBRegressor
+import optuna
 from sklearn.linear_model import LogisticRegression
 from typing import Optional, Union, Tuple, Dict, Any
 
@@ -26,6 +28,8 @@ MODEL_MAP = {
     "GradientBoostingClassifier": GradientBoostingClassifier,
     "GradientBoostingRegressor": GradientBoostingRegressor,
     "LogisticRegression": LogisticRegression,
+    "XGBClassifier": XGBClassifier,
+    "XGBRegressor": XGBRegressor,
 }
 
 # Hyperparameter grids for GridSearchCV
@@ -59,6 +63,20 @@ PARAM_GRIDS = {
         'model__penalty': ['l2'],
         'model__solver': ['lbfgs', 'liblinear'],
         'model__max_iter': [200, 500]
+    },
+    "XGBClassifier": {
+        'model__n_estimators': [100, 200, 300],
+        'model__max_depth': [3, 5, 7],
+        'model__learning_rate': [0.01, 0.1, 0.3],
+        'model__subsample': [0.8, 1.0],
+        'model__colsample_bytree': [0.8, 1.0]
+    },
+    "XGBRegressor": {
+        'model__n_estimators': [100, 200, 300],
+        'model__max_depth': [3, 5, 7],
+        'model__learning_rate': [0.01, 0.1, 0.3],
+        'model__subsample': [0.8, 1.0],
+        'model__colsample_bytree': [0.8, 1.0]
     }
 }
 
@@ -172,6 +190,17 @@ def tune_with_optuna(
                     'model__C': trial.suggest_float('C', 0.01, 100.0, log=True),
                     'model__solver': trial.suggest_categorical('solver', ['lbfgs', 'liblinear']),
                     'model__max_iter': trial.suggest_int('max_iter', 100, 1000),
+                }
+            elif model_name == "XGBClassifier" or model_name == "XGBRegressor":
+                params = {
+                    'model__n_estimators': trial.suggest_int('n_estimators', 50, 500),
+                    'model__max_depth': trial.suggest_int('max_depth', 3, 15),
+                    'model__learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+                    'model__subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                    'model__colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                    'model__gamma': trial.suggest_float('gamma', 0, 5),
+                    'model__reg_alpha': trial.suggest_float('reg_alpha', 0, 1),
+                    'model__reg_lambda': trial.suggest_float('reg_lambda', 0, 1),
                 }
             else:
                 return 0.0
