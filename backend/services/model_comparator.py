@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 import logging
 import time
+import base64
+import io
+import matplotlib.pyplot as plt
+import seaborn as sns
 from typing import List, Dict, Any, Optional
 from services.trainer import train_model, MODEL_MAP
 
@@ -23,6 +27,51 @@ def eligible_models(model_map, task_type):
         if task_type == "regression" and name.lower().endswith("regressor"):
             models.append(name)
     return models
+
+def generate_correlation_matrix(df: pd.DataFrame, target_column: str) -> Dict[str, Any]:
+    """Generate correlation matrix data for visualization"""
+    try:
+        # Select only numeric columns
+        numeric_df = df.select_dtypes(include=[np.number])
+        
+        if numeric_df.empty:
+            return {"error": "No numeric columns found for correlation analysis"}
+        
+        # Calculate correlation matrix
+        corr_matrix = numeric_df.corr()
+        
+        # Convert to format suitable for frontend
+        correlation_data = []
+        columns = corr_matrix.columns.tolist()
+        
+        for i, row_name in enumerate(columns):
+            for j, col_name in enumerate(columns):
+                correlation_data.append({
+                    "x": col_name,
+                    "y": row_name,
+                    "value": float(corr_matrix.iloc[i, j]) if not pd.isna(corr_matrix.iloc[i, j]) else 0
+                })
+        
+        # Get target correlations (most important features)
+        if target_column in corr_matrix.columns:
+            target_corr = corr_matrix[target_column].abs().sort_values(ascending=False)
+            target_correlations = [
+                {"feature": feature, "correlation": float(corr)}
+                for feature, corr in target_corr.items()
+                if feature != target_column
+            ][:10]  # Top 10 correlations
+        else:
+            target_correlations = []
+        
+        return {
+            "correlation_matrix": correlation_data,
+            "columns": columns,
+            "target_correlations": target_correlations,
+            "shape": corr_matrix.shape
+        }
+    except Exception as e:
+        logging.error(f"Error generating correlation matrix: {e}")
+        return {"error": str(e)}
 
 def compare_models(
     filepath: str,
@@ -97,11 +146,25 @@ def compare_models(
             "full_metrics": result["full_metrics"]
         })
 
+    # Generate correlation matrix and chart data
+    correlation_data = generate_correlation_matrix(df, target_column)
+    
+    # Generate performance chart data
+    chart_data = []
+    for result in ranked:
+        chart_data.append({
+            "model": result["model"],
+            "score": result["score"],
+            "train_time": result["train_time"]
+        })
+    
     return {
         "task_type": task_type,
         "leaderboard": leaderboard,  # Frontend expects this key
         "models_tried": test_models,
         "successful": len(ranked),
         "failed": len(failed),
-        "failures": failed
+        "failures": failed,
+        "correlation_data": correlation_data,
+        "chart_data": chart_data
     }
