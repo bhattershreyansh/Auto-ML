@@ -14,6 +14,32 @@ from scipy import stats
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
+def clean_for_json(obj):
+    """
+    Recursively clean data structure to make it JSON serializable.
+    Handles NaN, infinity, and other problematic values.
+    """
+    if isinstance(obj, dict):
+        return {key: clean_for_json(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [clean_for_json(item) for item in obj]
+    elif isinstance(obj, (np.integer, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64)):
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return clean_for_json(obj.tolist())
+    elif pd.isna(obj):
+        return None
+    elif isinstance(obj, (float, int)):
+        if isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
+            return None
+        return obj
+    else:
+        return obj
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
@@ -177,14 +203,16 @@ def generate_enhanced_visualizations(df: pd.DataFrame, target_col: str = None) -
         # 2. Target Distribution
         if target_col and target_col in df.columns:
             if df[target_col].dtype in ['object', 'category'] or df[target_col].nunique() < 20:
+                value_counts = df[target_col].value_counts().reset_index()
+                value_counts.columns = ['category', 'count']
                 fig = px.bar(
-                    df[target_col].value_counts().reset_index(),
-                    x='index',
-                    y=target_col,
+                    value_counts,
+                    x='category',
+                    y='count',
                     title=f"Target Distribution: {target_col}",
-                    labels={'index': target_col, target_col: 'Count'},
-                    color=target_col,
-                    color_discrete_sequence=px.colors.qualitative.Set2
+                    labels={'category': target_col, 'count': 'Count'},
+                    color='count',
+                    color_continuous_scale='viridis'
                 )
             else:
                 fig = px.histogram(
@@ -336,7 +364,7 @@ def analyze_dataset(filepath: str) -> dict:
     quality_report = generate_data_quality_report(df)
     
     # Statistical summary
-    summary_stats = df.describe(include='all', percentiles=[.25, .5, .75]).to_dict()
+    summary_stats = clean_for_json(df.describe(include='all', percentiles=[.25, .5, .75]).to_dict())
     
     # Call LLM for intelligent analysis
     llm_summary_text = df.describe(include='all').transpose().to_string()
@@ -383,7 +411,10 @@ def analyze_dataset(filepath: str) -> dict:
     
     logging.info(f"✅ Analysis complete. Generated {len(visualizations)} visualizations.")
     
-    return analysis_report
+    # Clean the data for JSON serialization
+    cleaned_report = clean_for_json(analysis_report)
+    
+    return cleaned_report
 
 
 if __name__ == "__main__":
