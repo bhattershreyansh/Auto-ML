@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Body
+from fastapi import FastAPI, File as FastAPIFile, UploadFile, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -18,6 +18,12 @@ from services.trainer import train_model
 from services.tester import evaluate_model
 from services.model_comparator import compare_models
 
+# Auth and Database imports
+from auth import get_current_user
+from database import init_db, get_db, User, File as DBFile, Experiment
+from sqlalchemy.orm import Session
+from fastapi import Depends
+
 app = FastAPI(title="AutoML API", version="1.0.0")
 
 # CORS middleware for React
@@ -29,11 +35,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create uploads directory
+# Create base uploads directory
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+# Initialize database on startup
+@app.on_event("startup")
+def startup_event():
+    init_db()
+
 logging.basicConfig(level=logging.INFO)
+
+def get_user_upload_dir(user_id: str) -> Path:
+    """Get or create a user-specific upload directory."""
+    user_dir = UPLOAD_DIR / user_id
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
 
 
 # Request models
@@ -116,29 +133,61 @@ class ModelComparisonRequest(BaseModel):
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = FastAPIFile(...),
+    user_id: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Upload CSV file for analysis"""
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
     
-    file_path = UPLOAD_DIR / file.filename
+    # Use user-specific directory
+    user_dir = get_user_upload_dir(user_id)
+    file_path = user_dir / file.filename
+    
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
+    # Record in database
+    # First, ensure user exists in our DB
+    db_user = db.query(User).filter(User.clerk_id == user_id).first()
+    if not db_user:
+        db_user = User(clerk_id=user_id)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    
+    db_file = DBFile(
+        user_id=db_user.id,
+        filename=file.filename,
+        original_name=file.filename,
+        filepath=str(file_path)
+    )
+    db.add(db_file)
+    db.commit()
+    
     return {
         "filename": file.filename,
-        "filepath": str(file_path).replace("\\", "/"),  # Ensure forward slashes for consistency
+        "filepath": str(file_path).replace("\\", "/"),
         "message": "File uploaded successfully"
     }
 
 
 @app.post("/analyze")
-async def analyze_data(request: AnalyzeRequest):
+async def analyze_data(
+    request: AnalyzeRequest,
+    user_id: str = Depends(get_current_user)
+):
     """Analyze the uploaded dataset"""
     try:
-        absolute_path = UPLOAD_DIR / Path(request.filepath).name
+        # Security check: ensure path is within user's directory
+        user_dir = get_user_upload_dir(user_id)
+        filename = Path(request.filepath).name
+        absolute_path = user_dir / filename
+        
         if not absolute_path.exists():
-            raise HTTPException(status_code=404, detail=f"File not found: {absolute_path}")
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
         
         results = analyze_dataset(str(absolute_path))
         return results
@@ -148,33 +197,29 @@ async def analyze_data(request: AnalyzeRequest):
 
 
 @app.post("/clean")
-async def clean_dataset(request: CleanRequest):
+async def clean_dataset(
+    request: CleanRequest,
+    user_id: str = Depends(get_current_user)
+):
     """Clean the dataset"""
     try:
-        # Normalize filepath - handle both forward and back slashes
-        filepath = request.filepath.replace("\\", "/")  # Convert backslashes to forward slashes
+        # Security check: ensure path is within user's directory
+        user_dir = get_user_upload_dir(user_id)
+        filename = Path(request.filepath).name
+        file_path = user_dir / filename
         
-        # Remove duplicate uploads/ prefix if it exists
-        if filepath.startswith("uploads/uploads/"):
-            filepath = filepath.replace("uploads/uploads/", "uploads/", 1)
-        elif not filepath.startswith("uploads/"):
-            filepath = f"uploads/{filepath}"
-        
-        # Check if file exists before calling clean_data
-        file_path = Path(filepath)
         if not file_path.exists():
             raise HTTPException(
                 status_code=404, 
-                detail=f"File not found: {filepath}"
+                detail=f"File not found: {filename}"
             )
         
         cleaned_path = clean_data(str(file_path))
         
-        # Check if cleaning actually succeeded
-        if not cleaned_path or cleaned_path == "":
+        if not cleaned_path:
             raise HTTPException(
                 status_code=500, 
-                detail="Data cleaning failed - empty result returned"
+                detail="Data cleaning failed"
             )
         
         return {
@@ -183,9 +228,7 @@ async def clean_dataset(request: CleanRequest):
         }
     
     except HTTPException:
-        raise  # Re-raise HTTP exceptions
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise
     except Exception as e:
         logging.error(f"Error in /clean endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -193,38 +236,23 @@ async def clean_dataset(request: CleanRequest):
 
 
 @app.post("/select-model")
-async def select_best_model(request: ModelSelectionRequest):
+async def select_best_model(
+    request: ModelSelectionRequest,
+    user_id: str = Depends(get_current_user)
+):
     """Select the best model for the dataset"""
     try:
-        logging.info(f"Received model selection request for: {request.filepath}, target: {request.target_column}")
-        
-        # Normalize filepath - handle both forward and back slashes
-        filepath = request.filepath.replace("\\", "/")  # Convert backslashes to forward slashes
-        
-        # Remove duplicate uploads/ prefix if it exists
-        if filepath.startswith("uploads/uploads/"):
-            filepath = filepath.replace("uploads/uploads/", "uploads/", 1)
-        elif not filepath.startswith("uploads/"):
-            filepath = f"uploads/{filepath}"
-        
-        input_file_path = Path(filepath)
-        if not input_file_path.is_absolute():
-            input_file_path = UPLOAD_DIR / input_file_path.name
+        user_dir = get_user_upload_dir(user_id)
+        filename = Path(request.filepath).name
+        input_file_path = user_dir / filename
         
         if not input_file_path.exists():
-            alternative_path = UPLOAD_DIR / Path(request.filepath).name
-            if alternative_path.exists():
-                input_file_path = alternative_path
-            else:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"File not found at: {input_file_path.absolute()}"
-                )
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not found: {filename}"
+            )
         
         model_suggestions = select_model(str(input_file_path), request.target_column)
-        if not model_suggestions:
-            raise HTTPException(status_code=500, detail="Model selection failed")
-        
         return model_suggestions
     
     except HTTPException:
@@ -234,235 +262,146 @@ async def select_best_model(request: ModelSelectionRequest):
 
 
 @app.post("/train")
-async def train_selected_model(request: TrainingRequest):
-    """Train the selected model using sklearn Pipeline"""
+async def train_selected_model(
+    request: TrainingRequest,
+    user_id: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Train the selected model and record experiment"""
     try:
-        # Normalize filepath
+        user_dir = get_user_upload_dir(user_id)
         filename = Path(request.filepath).name
-        input_file_path = UPLOAD_DIR / filename
-        
-        logging.info(f"Looking for file at: {input_file_path}")
+        input_file_path = user_dir / filename
         
         if not input_file_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"File not found: {input_file_path}"
-            )
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
         
-        logging.info("File found, calling train_model...")
-        
-        # NEW: train_model now returns (metrics, pipeline, label_encoder)
         metrics, trained_pipeline, label_encoder = train_model(
             filepath=str(input_file_path),
             target_column=request.target_column,
             model_name=request.model_name,
-            test_size=getattr(request, 'test_size', 0.2),
-            tune_hyperparams=getattr(request, 'tune_hyperparams', False),  # NEW
-            cv_folds=getattr(request, 'cv_folds', 5),  # NEW
-            n_trials=getattr(request, 'n_trials', 50)  # NEW
+            test_size=request.test_size or 0.2,
+            tune_hyperparams=request.tune_hyperparams,
+            cv_folds=request.cv_folds or 5,
+            n_trials=request.n_trials or 50
         )
         
-        if trained_pipeline is None:
-            raise HTTPException(status_code=500, detail="Model training failed unexpectedly.")
-        
-        # Create model filename
+        # Save model in user's directory
         model_filename = f"trained_{request.model_name}_{Path(filename).stem}_{request.target_column}.joblib"
-        model_save_path = UPLOAD_DIR / model_filename
-        
-        # Save the complete pipeline
+        model_save_path = user_dir / model_filename
         joblib.dump(trained_pipeline, model_save_path)
-        logging.info(f"✅ Pipeline saved to: {model_save_path}")
         
-        # Save label encoder separately if it exists (for classification)
-        if label_encoder is not None:
-            encoder_filename = f"encoder_{request.model_name}_{Path(filename).stem}_{request.target_column}.joblib"
-            encoder_save_path = UPLOAD_DIR / encoder_filename
-            joblib.dump(label_encoder, encoder_save_path)
-            logging.info(f"✅ Label encoder saved to: {encoder_save_path}")
-        else:
-            encoder_filename = None
+        # Save experiment to database
+        db_user = db.query(User).filter(User.clerk_id == user_id).first()
+        db_experiment = Experiment(
+            user_id=db_user.id,
+            model_name=request.model_name,
+            target_column=request.target_column,
+            metrics=metrics,
+            model_path=str(model_save_path)
+        )
+        db.add(db_experiment)
+        db.commit()
         
         return {
             "message": "Model trained successfully",
             "metrics": metrics,
-            "model_path": f"uploads/{model_filename}",
-            "encoder_path": f"uploads/{encoder_filename}" if encoder_filename else None,
+            "model_path": f"uploads/{user_id}/{model_filename}",
             "model_filename": model_filename,
             "model_name": request.model_name,
             "target_column": request.target_column
         }
     
-    except ValueError as e:
-        logging.warning(f"Validation error in training: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logging.error(f"Error in /train: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/evaluate")
-async def evaluate_trained_model(request: EvaluationRequest):
+async def evaluate_trained_model(
+    request: EvaluationRequest,
+    user_id: str = Depends(get_current_user)
+):
     """Evaluate a trained pipeline on test data"""
     try:
-        logging.info(f"Received evaluation request for model: {request.model_path}")
+        user_dir = get_user_upload_dir(user_id)
+        model_filename = Path(request.model_path).name
+        test_filename = Path(request.test_data_path).name
         
-        # Normalize paths - handle both forward and back slashes
-        model_path = request.model_path.replace("\\", "/")  # Convert backslashes to forward slashes
-        if model_path.startswith("uploads/uploads/"):
-            model_path = model_path.replace("uploads/uploads/", "uploads/", 1)
-        elif not model_path.startswith("uploads/"):
-            model_path = f"uploads/{model_path}"
+        model_file_path = user_dir / model_filename
+        test_file_path = user_dir / test_filename
         
-        test_data_path = request.test_data_path.replace("\\", "/")  # Convert backslashes to forward slashes
-        if test_data_path.startswith("uploads/uploads/"):
-            test_data_path = test_data_path.replace("uploads/uploads/", "uploads/", 1)
-        elif not test_data_path.startswith("uploads/"):
-            test_data_path = f"uploads/{test_data_path}"
-        
-        # Build absolute paths
-        model_file_path = Path(model_path)
-        if not model_file_path.is_absolute():
-            model_file_path = UPLOAD_DIR / model_file_path.name
-        
-        test_file_path = Path(test_data_path)
-        if not test_file_path.is_absolute():
-            test_file_path = UPLOAD_DIR / test_file_path.name
-        
-        # Check files exist
         if not model_file_path.exists():
-            alternative_model_path = UPLOAD_DIR / Path(request.model_path).name
-            if alternative_model_path.exists():
-                model_file_path = alternative_model_path
-            else:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Model file not found at: {model_file_path.absolute()}"
-                )
-        
+            raise HTTPException(status_code=404, detail=f"Model not found: {model_filename}")
         if not test_file_path.exists():
-            alternative_test_path = UPLOAD_DIR / Path(request.test_data_path).name
-            if alternative_test_path.exists():
-                test_file_path = alternative_test_path
-            else:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Test data file not found at: {test_file_path.absolute()}"
-                )
+            raise HTTPException(status_code=404, detail=f"Test data not found: {test_filename}")
         
-        # Load pipeline (not just model)
         pipeline = joblib.load(model_file_path)
-        logging.info("Pipeline loaded successfully")
-        
-        # Load test data
         df_test = pd.read_csv(test_file_path)
-        logging.info(f"Test data loaded: {df_test.shape}")
         
         if request.target_column not in df_test.columns:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Target column '{request.target_column}' not found in test data"
-            )
+            raise HTTPException(status_code=400, detail=f"Target column '{request.target_column}' not in test data")
         
-        # Prepare test data - NO PREPROCESSING NEEDED (pipeline handles it)
         X_test = df_test.drop(columns=[request.target_column])
         y_test = df_test[request.target_column]
         
-        # Drop rows with missing target
-        valid_idx = y_test.dropna().index
-        X_test = X_test.loc[valid_idx]
-        y_test = y_test.loc[valid_idx]
-        
-        if len(X_test) == 0:
-            raise HTTPException(status_code=400, detail="No valid test samples")
-        
-        logging.info(f"Evaluating pipeline on {len(X_test)} test samples...")
-        
-        # Evaluate (pipeline handles preprocessing automatically)
-        results = evaluate_model(
-            pipeline,
-            X_test,
-            y_test,
-            task_type=request.task_type,
-            plot=False
-        )
-        
-        logging.info("✅ Pipeline evaluation completed successfully")
+        results = evaluate_model(pipeline, X_test, y_test, task_type=request.task_type, plot=False)
         
         return {
             "evaluation_results": results,
             "test_samples": len(X_test),
-            "model_used": str(model_file_path.name),
-            "test_data_used": str(test_file_path.name),
-            "message": "Pipeline evaluation completed successfully"
+            "model_used": model_filename,
+            "test_data_used": test_filename,
+            "message": "Evaluation completed"
         }
-    
-    except HTTPException:
-        raise
     except Exception as e:
-        logging.error(f"Error in evaluate_trained_model: {e}")
+        logging.error(f"Error in evaluate: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/predict")
-async def predict_single(request: PredictRequest):
+async def predict_single(
+    request: PredictRequest,
+    user_id: str = Depends(get_current_user)
+):
     """Make prediction using trained pipeline"""
     try:
-        # Normalize model path - handle both forward and back slashes
-        model_path = request.model_path.replace("\\", "/")  # Convert backslashes to forward slashes
-        if model_path.startswith("uploads/uploads/"):
-            model_path = model_path.replace("uploads/uploads/", "uploads/", 1)
-        elif not model_path.startswith("uploads/"):
-            model_path = f"uploads/{model_path}"
-        
-        model_file_path = Path(model_path)
-        if not model_file_path.is_absolute():
-            model_file_path = UPLOAD_DIR / model_file_path.name
+        user_dir = get_user_upload_dir(user_id)
+        model_filename = Path(request.model_path).name
+        model_file_path = user_dir / model_filename
         
         if not model_file_path.exists():
-            alt = UPLOAD_DIR / Path(request.model_path).name
-            if alt.exists():
-                model_file_path = alt
-            else:
-                raise HTTPException(status_code=404, detail=f"Model not found: {model_file_path}")
+            raise HTTPException(status_code=404, detail=f"Model not found: {model_filename}")
         
-        # Load pipeline
         pipeline = joblib.load(model_file_path)
-        
-        # Build single-row DataFrame from incoming features
         X = pd.DataFrame([request.features])
-        
-        # Pipeline handles all preprocessing automatically!
         y_pred = pipeline.predict(X)[0]
         
-        resp: Dict[str, Any] = {
+        resp = {
             "prediction": int(y_pred) if isinstance(y_pred, (np.integer, int)) else float(y_pred)
         }
-        
-        # Probabilities if available
         if hasattr(pipeline, "predict_proba"):
             try:
-                proba = pipeline.predict_proba(X)[0]
-                resp["probabilities"] = proba.tolist()
-            except Exception as e:
-                logging.warning(f"Could not get probabilities: {e}")
-        
+                resp["probabilities"] = pipeline.predict_proba(X)[0].tolist()
+            except: pass
         return resp
-    
-    except HTTPException:
-        raise
     except Exception as e:
         logging.error(f"Error in predict_single: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/compare-models")
-async def compare_multiple_models(request: ModelComparisonRequest):
-    """Compare all eligible models and rank by score."""
+async def compare_multiple_models(
+    request: ModelComparisonRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Compare all eligible models scoped to user's dataset."""
     try:
+        user_dir = get_user_upload_dir(user_id)
         filename = Path(request.filepath).name
-        input_file_path = UPLOAD_DIR / filename
+        input_file_path = user_dir / filename
 
         if not input_file_path.exists():
-            raise HTTPException(status_code=404, detail=f"File not found: {input_file_path}")
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
         result = compare_models(
             filepath=str(input_file_path),
@@ -477,6 +416,17 @@ async def compare_multiple_models(request: ModelComparisonRequest):
     except Exception as e:
         logging.error(f"Comparison error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/experiments")
+async def get_experiments(
+    user_id: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve history of training runs for the current user."""
+    db_user = db.query(User).filter(User.clerk_id == user_id).first()
+    if not db_user:
+        return []
+    return db.query(Experiment).filter(Experiment.user_id == db_user.id).order_by(Experiment.created_at.desc()).all()
 
 
 @app.get("/health")

@@ -1,44 +1,67 @@
 import { useState } from "react";
-import { Trophy, Clock, Zap, Loader2, BarChart3, Activity } from "lucide-react";
+import { Trophy, Clock, Zap, Loader2, BarChart3, Activity, Target, Cpu, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
-import { compareModels } from "@/lib/api";
+import { compareModels, trainModel } from "@/lib/api";
 import { CorrelationMatrix } from "@/components/charts/CorrelationMatrix";
 import { PerformanceChart } from "@/components/charts/PerformanceChart";
+import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 interface ComparisonStepProps {
   filepath: string;
   targetColumn: string;
   currentMetrics: any;
-  onNext: (comparisonData: any) => void;
+  onNext: (comparisonData: any, electedModelName?: string) => void;
   onBack: () => void;
 }
 
 export function ComparisonStep({ filepath, targetColumn, currentMetrics, onNext, onBack }: ComparisonStepProps) {
   const [comparing, setComparing] = useState(false);
   const [comparisonData, setComparisonData] = useState<any>(null);
+  const [electedModelName, setElectedModelName] = useState<string>(currentMetrics?.meta?.model || "");
+  const [activating, setActivating] = useState(false);
+
+  const handleFinalize = async () => {
+    if (electedModelName && electedModelName !== currentMetrics?.meta?.model) {
+      setActivating(true);
+      toast({
+        title: "Activating Champion",
+        description: `Synthesizing artifacts and SHAP insights for ${electedModelName}...`,
+      });
+      try {
+        const response = await trainModel(filepath, targetColumn, electedModelName, 0.2, false, 5);
+        onNext({ ...comparisonData, newMetrics: response.metrics, newModelPath: response.model_filename }, electedModelName);
+      } catch (error: any) {
+        toast({
+          title: "Activation Aborted",
+          description: error.response?.data?.detail || "Kernel failure during champion synthesis.",
+          variant: "destructive",
+        });
+      } finally {
+        setActivating(false);
+      }
+    } else {
+      onNext(comparisonData, electedModelName);
+    }
+  };
 
   const handleCompare = async () => {
     setComparing(true);
     try {
       const response = await compareModels(filepath, targetColumn, undefined, 0.2, false, 3);
-      console.log('Comparison response:', response);
-      console.log('Comparison data:', response.comparison);
-      console.log('Leaderboard:', response.comparison?.leaderboard);
       setComparisonData(response.comparison);
       toast({
-        title: "Comparison complete!",
-        description: "All models have been evaluated",
+        title: "Benchmark Complete",
+        description: "Multi-model evaluation matrix generated.",
       });
     } catch (error: any) {
-      console.error('Comparison error:', error);
       toast({
-        title: "Comparison failed",
-        description: error.response?.data?.detail || "Failed to compare models",
+        title: "Benchmark Aborted",
+        description: error.response?.data?.detail || "Evaluation kernel failure.",
         variant: "destructive",
       });
     } finally {
@@ -46,245 +69,203 @@ export function ComparisonStep({ filepath, targetColumn, currentMetrics, onNext,
     }
   };
 
+  const metricEntries = currentMetrics ? Object.entries(currentMetrics)
+    .filter(([key, value]) => 
+      typeof value === 'number' && 
+      !['support'].includes(key) && 
+      !key.includes('avg')
+    )
+    .slice(0, 6) : [];
+
   return (
-    <div className="space-y-6 animate-in fade-in-50 duration-500">
-      <div className="text-center space-y-2">
-        <h2 className="text-3xl font-bold gradient-primary bg-clip-text text-transparent">
-          Model Comparison
-        </h2>
-        <p className="text-muted-foreground max-w-2xl mx-auto">
-          Compare multiple models to find the best performer for your dataset.
+    <div className="space-y-12">
+      <div className="text-center space-y-4">
+        <h2 className="text-4xl font-black text-gradient">Performance Matrix</h2>
+        <p className="text-slate-500 max-w-xl mx-auto font-medium">
+          Benchmark model heuristics against industry standards and alternative architectures.
         </p>
       </div>
 
       {currentMetrics && (
-        <Card className="transition-smooth hover:shadow-lg border-accent/50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="h-5 w-5 text-accent" />
-              Current Model Performance
-            </CardTitle>
-            <CardDescription>Results from your trained model</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-3 gap-4">
-              {Object.entries(currentMetrics)
-                .filter(([key, value]) => 
-                  typeof value === 'number' && 
-                  !['support'].includes(key) && // Exclude support counts
-                  !key.includes('avg') // Exclude avg metrics for now, show them separately
-                )
-                .slice(0, 6)
-                .map(([key, value]: [string, any]) => (
-                <div key={key} className="p-4 rounded-lg bg-muted/50">
-                  <p className="text-sm text-muted-foreground capitalize">
-                    {key.replace(/_/g, ' ')}
-                  </p>
-                  <p className="text-xl font-bold text-primary mt-1">
-                    {value.toFixed(4)}
-                  </p>
-                </div>
-              ))}
-              
-              {/* Show macro averages from classification report if available */}
-              {currentMetrics['macro avg'] && typeof currentMetrics['macro avg'] === 'object' && (
-                <>
-                  {['precision', 'recall', 'f1-score'].map((metric) => (
-                    currentMetrics['macro avg'][metric] && (
-                      <div key={`macro_${metric}`} className="p-4 rounded-lg bg-muted/50">
-                        <p className="text-sm text-muted-foreground capitalize">
-                          {metric.replace('-', ' ')} (Macro)
-                        </p>
-                        <p className="text-xl font-bold text-primary mt-1">
-                          {currentMetrics['macro avg'][metric].toFixed(4)}
-                        </p>
-                      </div>
-                    )
-                  ))}
-                </>
-              )}
-            </div>
-            
-            {/* Show detailed metrics for classification */}
-            {currentMetrics.classification_report && typeof currentMetrics.classification_report === 'object' && (
-              <div className="mt-6">
-                <h4 className="text-sm font-semibold mb-3">Detailed Classification Metrics</h4>
-                <div className="grid md:grid-cols-3 gap-4">
-                  {['precision', 'recall', 'f1-score'].map((metricType) => (
-                    <div key={metricType} className="space-y-2">
-                      <p className="text-sm font-medium capitalize">{metricType.replace('-', ' ')}</p>
-                      {Object.entries(currentMetrics.classification_report)
-                        .filter(([key]) => !['accuracy', 'macro avg', 'weighted avg'].includes(key))
-                        .map(([className, classMetrics]: [string, any]) => (
-                          classMetrics && typeof classMetrics === 'object' && classMetrics[metricType] && (
-                            <div key={className} className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Class {className}:</span>
-                              <span className="font-medium">{classMetrics[metricType].toFixed(3)}</span>
-                            </div>
-                          )
-                        ))}
-                      {/* Show averages */}
-                      {currentMetrics.classification_report['macro avg'] && (
-                        <div className="flex justify-between text-sm border-t pt-1">
-                          <span className="text-muted-foreground">Macro Avg:</span>
-                          <span className="font-semibold">
-                            {currentMetrics.classification_report['macro avg'][metricType]?.toFixed(3)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-10 border-emerald-500/10 space-y-8"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                <Trophy className="h-6 w-6" />
               </div>
-            )}
-          </CardContent>
-        </Card>
+              <div>
+                <h3 className="font-black uppercase text-xs tracking-[0.2em] text-white">Current Model Metrics</h3>
+                <p className="text-[10px] text-slate-500 font-medium italic">Validated Performance Heuristics</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+               <span className="text-[10px] font-black uppercase text-emerald-500 tracking-widest">Active Model</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+            {metricEntries.map(([key, value]: [string, any]) => (
+              <div key={key} className="p-5 rounded-2xl bg-white/[0.03] border border-white/5 space-y-2 group hover:border-emerald-500/30 transition-all">
+                <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest group-hover:text-slate-400 transition-colors">
+                  {key.replace(/_/g, ' ')}
+                </p>
+                <p className="text-2xl font-black text-white">
+                  {value.toFixed(4)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </motion.div>
       )}
 
       {!comparisonData ? (
-        <Card className="p-8 text-center">
-          <div className="max-w-md mx-auto space-y-4">
-            <Zap className="h-16 w-16 mx-auto text-primary" />
-            <h3 className="text-xl font-semibold">Compare All Models</h3>
-            <p className="text-muted-foreground">
-              Run a comprehensive comparison across all available models to identify
-              the best algorithm for your specific use case.
-            </p>
-            <Button
-              size="lg"
-              variant="gradient"
-              onClick={handleCompare}
-              disabled={comparing}
-            >
-              {comparing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Comparing Models...
-                </>
-              ) : (
-                "Start Comparison"
-              )}
-            </Button>
+        <motion.div 
+           initial={{ opacity: 0, scale: 0.95 }}
+           animate={{ opacity: 1, scale: 1 }}
+           className="glass-card p-16 text-center space-y-10 border-dashed border-2 border-white/5 bg-transparent"
+        >
+          <div className="space-y-4">
+             <div className="w-20 h-20 rounded-3xl bg-emerald-500/5 mx-auto flex items-center justify-center">
+                <Zap className="h-10 w-10 text-emerald-500" />
+             </div>
+             <h3 className="text-2xl font-black text-white uppercase tracking-tight">Full Pipeline Benchmark</h3>
+             <p className="text-slate-500 max-w-sm mx-auto font-medium text-sm">
+                Execute a parallel evaluation of multiple architectures to identify the absolute performance peak.
+             </p>
           </div>
-        </Card>
+
+          <Button
+            size="lg"
+            onClick={handleCompare}
+            disabled={comparing}
+            className="h-16 px-12 gradient-primary font-black uppercase tracking-[0.2em] shadow-glow border-none min-w-[280px]"
+          >
+            {comparing ? (
+              <>
+                <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                Executing Matrix...
+              </>
+            ) : (
+              "Initialize Benchmark &rarr;"
+            )}
+          </Button>
+        </motion.div>
       ) : (
-        <Tabs defaultValue="leaderboard" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="leaderboard" className="flex items-center gap-2">
-              <Trophy className="h-4 w-4" />
+        <Tabs defaultValue="leaderboard" className="space-y-8">
+          <TabsList className="bg-white/2 border border-white/5 p-1 rounded-2xl h-14 w-fit">
+            <TabsTrigger value="leaderboard" className="h-full px-8 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-emerald-500 data-[state=active]:text-black transition-all">
+              <Trophy className="h-4 w-4 mr-2" />
               Leaderboard
             </TabsTrigger>
-            <TabsTrigger value="charts" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              Performance Charts
+            <TabsTrigger value="charts" className="h-full px-8 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-emerald-500 data-[state=active]:text-black transition-all">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Metrics
             </TabsTrigger>
-            <TabsTrigger value="correlation" className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              Correlation Analysis
+            <TabsTrigger value="correlation" className="h-full px-8 rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-emerald-500 data-[state=active]:text-black transition-all">
+              <Activity className="h-4 w-4 mr-2" />
+              Correlation
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="leaderboard">
-            <Card className="transition-smooth hover:shadow-lg">
-              <CardHeader>
-                <CardTitle>Model Leaderboard</CardTitle>
-                <CardDescription>
-                  Ranked by performance score ({comparisonData.task_type})
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Rank</TableHead>
-                      <TableHead>Model</TableHead>
-                      <TableHead>Score</TableHead>
-                      <TableHead>Training Time</TableHead>
+          <TabsContent value="leaderboard" className="mt-8">
+            <div className="glass-card overflow-hidden border-white/10 shadow-glow">
+              <Table>
+                <TableHeader className="bg-white/[0.03]">
+                  <TableRow className="border-white/5 hover:bg-transparent">
+                    <TableHead className="text-[10px] font-black uppercase text-slate-500 tracking-widest py-6 px-8">Rank</TableHead>
+                    <TableHead className="text-[10px] font-black uppercase text-slate-500 tracking-widest py-6">Architecture</TableHead>
+                    <TableHead className="text-[10px] font-black uppercase text-slate-500 tracking-widest py-6">Confidence Score</TableHead>
+                    <TableHead className="text-[10px] font-black uppercase text-slate-500 tracking-widest py-6 px-8">Kernel Time</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {comparisonData.leaderboard?.map((model: any, idx: number) => (
+                    <TableRow key={idx} onClick={() => setElectedModelName(model.model_name)} className={cn(
+                        "border-white/5 transition-all cursor-pointer",
+                        model.model_name === electedModelName ? "bg-emerald-500/10 border-emerald-500/50 shadow-[inset_0_0_20px_rgba(16,185,129,0.1)]" : "hover:bg-white/[0.02]"
+                    )}>
+                      <TableCell className="px-8 py-6">
+                        {idx === 0 ? (
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 text-black font-black text-xs shadow-glow">
+                            01
+                          </div>
+                        ) : (
+                          <span className="text-slate-600 font-bold ml-2">0{idx + 1}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-bold text-white uppercase text-xs tracking-wider">{model.model_name}</TableCell>
+                      <TableCell>
+                        <span className={cn(
+                            "font-black text-sm",
+                            idx === 0 ? "text-emerald-500" : "text-slate-300"
+                        )}>
+                          {(model.score * 100).toFixed(2)}%
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-8 py-6 italic text-slate-500 text-[11px] font-medium">
+                        {model.train_time?.toFixed(3)}s
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {comparisonData.leaderboard && comparisonData.leaderboard.length > 0 ? (
-                      comparisonData.leaderboard.map((model: any, idx: number) => (
-                        <TableRow key={idx}>
-                          <TableCell>
-                            {idx === 0 ? (
-                              <Badge className="gradient-accent text-white">
-                                <Trophy className="h-3 w-3 mr-1" />
-                                #{idx + 1}
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground">#{idx + 1}</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="font-medium">{model.model_name}</TableCell>
-                          <TableCell>
-                            <span className="font-semibold text-primary">
-                              {model.score?.toFixed(4) || 'N/A'}
-                            </span>
-                          </TableCell>
-                          <TableCell className="flex items-center gap-2 text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            {model.train_time?.toFixed(2) || 'N/A'}s
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={4} className="text-center text-muted-foreground">
-                          No comparison data available
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </TabsContent>
 
-          <TabsContent value="charts">
-            {comparisonData.chart_data && comparisonData.chart_data.length > 0 ? (
-              <PerformanceChart 
-                data={comparisonData.chart_data} 
-                taskType={comparisonData.task_type}
-              />
-            ) : (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <p className="text-muted-foreground">No chart data available</p>
-                </CardContent>
-              </Card>
-            )}
+          <TabsContent value="charts" className="mt-8">
+            <div className="glass-card p-10 border-white/5 min-h-[400px] flex flex-col items-center justify-center">
+                {comparisonData.chart_data?.length > 0 ? (
+                <PerformanceChart 
+                    data={comparisonData.chart_data} 
+                    taskType={comparisonData.task_type}
+                />
+                ) : (
+                <p className="text-slate-500 font-black uppercase text-[10px] tracking-widest">Awaiting Metric Visualization</p>
+                )}
+            </div>
           </TabsContent>
 
-          <TabsContent value="correlation">
-            {comparisonData.correlation_data && comparisonData.correlation_data.correlation_matrix ? (
-              <CorrelationMatrix 
-                data={comparisonData.correlation_data.correlation_matrix}
-                columns={comparisonData.correlation_data.columns}
-                targetCorrelations={comparisonData.correlation_data.target_correlations}
-              />
-            ) : (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <p className="text-muted-foreground">No correlation data available</p>
-                </CardContent>
-              </Card>
-            )}
+          <TabsContent value="correlation" className="mt-8">
+            <div className="glass-card p-10 border-white/5 min-h-[400px]">
+                {comparisonData.correlation_data ? (
+                <CorrelationMatrix 
+                    data={comparisonData.correlation_data.correlation_matrix}
+                    columns={comparisonData.correlation_data.columns}
+                    targetCorrelations={comparisonData.correlation_data.target_correlations}
+                />
+                ) : (
+                <div className="h-full flex items-center justify-center">
+                    <p className="text-slate-500 font-black uppercase text-[10px] tracking-widest">Correlation Engine Inactive</p>
+                </div>
+                )}
+            </div>
           </TabsContent>
         </Tabs>
       )}
 
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={onBack} disabled={comparing}>
+      <div className="flex justify-between items-center pt-12 border-t border-white/5">
+        <Button variant="outline" onClick={onBack} disabled={comparing} className="glass-morphism border-white/10 px-10 h-14 font-black uppercase text-[10px] tracking-widest hover:bg-white/5">
           Back
         </Button>
         <Button
           size="lg"
-          variant="gradient"
-          onClick={() => onNext(comparisonData)}
-          disabled={!comparisonData}
+          onClick={handleFinalize}
+          disabled={!comparisonData || activating}
+          className="gradient-primary px-14 h-16 font-black uppercase tracking-[0.2em] shadow-glow border-none"
         >
-          Next: View Results
+          {activating ? (
+            <>
+              <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+              Synthesizing...
+            </>
+          ) : (
+            electedModelName && electedModelName !== currentMetrics?.meta?.model ? "Activate Champion & Deploy \u2192" : "Finalize & Deploy \u2192"
+          )}
         </Button>
       </div>
     </div>

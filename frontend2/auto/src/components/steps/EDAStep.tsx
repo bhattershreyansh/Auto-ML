@@ -1,9 +1,10 @@
-import { BarChart3, TrendingUp, Activity, PieChart } from "lucide-react";
+import { BarChart3, TrendingUp, Activity, PieChart, Database, Target, BrainCircuit, Columns, ShieldCheck, Microscope, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlotlyChart } from "@/components/charts/PlotlyChart";
+import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 interface EDAStepProps {
   analysisData: any;
@@ -12,285 +13,194 @@ interface EDAStepProps {
 }
 
 export function EDAStep({ analysisData, onNext, onBack }: EDAStepProps) {
-  console.log('EDAStep - analysisData:', analysisData);
-  console.log('EDAStep - visualizations:', analysisData?.visualizations);
-  console.log('EDAStep - visualization keys:', analysisData?.visualizations ? Object.keys(analysisData.visualizations) : 'No visualizations');
+  const dtypes = analysisData?.basic_statistics?.dtypes || {};
+  const dtypeEntries = Object.entries(dtypes);
   
   return (
-    <div className="space-y-6 animate-in fade-in-50 duration-500">
-      <div className="text-center space-y-2">
-        <h2 className="text-3xl font-bold gradient-primary bg-clip-text text-transparent">
-          Exploratory Data Analysis
+    <div className="space-y-12">
+      <div className="text-center space-y-4">
+        <h2 className="text-4xl font-black text-gradient uppercase tracking-tight">
+           Feature Engineering Audit
         </h2>
-        <p className="text-muted-foreground max-w-2xl mx-auto">
-          Understand your data through visualizations and statistical insights.
+        <p className="text-slate-500 max-w-xl mx-auto font-medium">
+          Deep diagnostic analysis of feature distributions and algorithmic correlations.
         </p>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <Card className="transition-smooth hover:shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              Column Types
-            </CardTitle>
-            <CardDescription>Data types detected in your dataset</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {analysisData?.basic_statistics?.dtypes && Object.entries(analysisData.basic_statistics.dtypes).slice(0, 10).map(([col, dtype]: [string, any]) => (
-                <div key={col} className="flex justify-between items-center py-2 border-b last:border-0">
-                  <span className="text-sm font-medium truncate max-w-[200px]">{col}</span>
-                  <Badge variant="secondary">{dtype}</Badge>
-                </div>
-              ))}
-              {analysisData?.basic_statistics?.dtypes && Object.keys(analysisData.basic_statistics.dtypes).length > 10 && (
-                <p className="text-xs text-muted-foreground text-center pt-2">
-                  + {Object.keys(analysisData.basic_statistics.dtypes).length - 10} more columns
-                </p>
-              )}
+      <div className="grid lg:grid-cols-3 gap-8">
+        {/* Schema Audit */}
+        <motion.div 
+           initial={{ opacity: 0, x: -20 }}
+           animate={{ opacity: 1, x: 0 }}
+           className="lg:col-span-1 glass-card p-10 border-white/5 flex flex-col"
+        >
+          <div className="flex items-center gap-4 mb-8">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 border border-emerald-500/10">
+               <Columns className="h-6 w-6" />
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="transition-smooth hover:shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-accent" />
-              Quick Stats
-            </CardTitle>
-            <CardDescription>Key metrics about your dataset</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-lg bg-muted/50">
-                <p className="text-sm text-muted-foreground">Total Rows</p>
-                <p className="text-2xl font-bold text-primary mt-1">
-                  {analysisData?.basic_statistics?.shape?.[0]?.toLocaleString() || 0}
-                </p>
-              </div>
-              <div className="p-4 rounded-lg bg-muted/50">
-                <p className="text-sm text-muted-foreground">Total Columns</p>
-                <p className="text-2xl font-bold text-primary mt-1">
-                  {analysisData?.basic_statistics?.shape?.[1] || 0}
-                </p>
-              </div>
-              <div className="p-4 rounded-lg bg-muted/50 col-span-2">
-                <p className="text-sm text-muted-foreground">Target Column</p>
-                <p className="text-xl font-bold text-accent mt-1 capitalize">
-                  {analysisData?.suggested_target || "Unknown"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Data Visualizations */}
-      {analysisData?.visualizations && Object.keys(analysisData.visualizations).length > 0 ? (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Data Visualizations</h3>
-          <Tabs defaultValue="distributions" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="distributions" className="flex items-center gap-2">
-                <BarChart3 className="h-4 w-4" />
-                Distributions
-              </TabsTrigger>
-              <TabsTrigger value="correlations" className="flex items-center gap-2">
-                <Activity className="h-4 w-4" />
-                Correlations
-              </TabsTrigger>
-              <TabsTrigger value="relationships" className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Relationships
-              </TabsTrigger>
-              <TabsTrigger value="quality" className="flex items-center gap-2">
-                <PieChart className="h-4 w-4" />
-                Data Quality
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="distributions" className="mt-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                {analysisData.visualizations.target_distribution && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Target Distribution</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <PlotlyChart data={analysisData.visualizations.target_distribution} />
-                    </CardContent>
-                  </Card>
-                )}
-                {analysisData.visualizations.numeric_distributions && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Numeric Features</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <PlotlyChart data={analysisData.visualizations.numeric_distributions} />
-                    </CardContent>
-                  </Card>
-                )}
-                {Object.entries(analysisData.visualizations)
-                  .filter(([key]) => key.startsWith('categorical_'))
-                  .slice(0, 2)
-                  .map(([key, data]) => (
-                    <Card key={key}>
-                      <CardHeader>
-                        <CardTitle className="text-base">
-                          {key.replace('categorical_', '').replace('_', ' ')}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <PlotlyChart data={data as string} />
-                      </CardContent>
-                    </Card>
-                  ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="correlations" className="mt-6">
-              <div className="grid gap-6">
-                {analysisData.visualizations.correlation_heatmap && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Feature Correlation Heatmap</CardTitle>
-                      <CardDescription>
-                        Correlation between numeric features (-1 to 1)
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <PlotlyChart data={analysisData.visualizations.correlation_heatmap} />
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="relationships" className="mt-6">
-              <div className="grid gap-6">
-                {analysisData.visualizations.scatter_matrix && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Feature Relationships</CardTitle>
-                      <CardDescription>
-                        Pairwise relationships between numeric features
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <PlotlyChart data={analysisData.visualizations.scatter_matrix} />
-                    </CardContent>
-                  </Card>
-                )}
-                {analysisData.visualizations.target_vs_feature && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Target vs Features</CardTitle>
-                      <CardDescription>
-                        How features relate to the target variable
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <PlotlyChart data={analysisData.visualizations.target_vs_feature} />
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="quality" className="mt-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                {analysisData.visualizations.missing_values && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Missing Values</CardTitle>
-                      <CardDescription>
-                        Columns with missing data
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <PlotlyChart data={analysisData.visualizations.missing_values} />
-                    </CardContent>
-                  </Card>
-                )}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Data Quality Summary</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Missing Values:</span>
-                        <span className="font-medium">
-                          {analysisData.data_quality?.missing_percentage || 0}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Duplicate Rows:</span>
-                        <span className="font-medium">
-                          {analysisData.data_quality?.duplicate_rows || 0}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Memory Usage:</span>
-                        <span className="font-medium">
-                          {analysisData.data_quality?.memory_usage_mb || 0} MB
-                        </span>
-                      </div>
-                      {analysisData.data_quality?.constant_columns?.length > 0 && (
-                        <div className="pt-2 border-t">
-                          <p className="text-sm text-muted-foreground mb-1">Constant Columns:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {analysisData.data_quality.constant_columns.map((col: string) => (
-                              <Badge key={col} variant="outline" className="text-xs">
-                                {col}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </Card>
-      ) : (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Data Visualizations</h3>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="aspect-video rounded-lg bg-gradient-subtle border border-border flex items-center justify-center">
-              <div className="text-center space-y-2">
-                <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">
-                  No visualization data available
-                </p>
-              </div>
-            </div>
-            <div className="aspect-video rounded-lg bg-gradient-subtle border border-border flex items-center justify-center">
-              <div className="text-center space-y-2">
-                <TrendingUp className="h-12 w-12 mx-auto text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">
-                  Run analysis to generate charts
-                </p>
-              </div>
+            <div>
+              <h3 className="font-black uppercase text-xs tracking-[0.2em] text-white">Schema Audit</h3>
+              <p className="text-[10px] text-slate-500 font-medium italic">Detected Data Types</p>
             </div>
           </div>
-        </Card>
+          
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar flex-1">
+            {dtypeEntries.slice(0, 50).map(([col, dtype]: [string, any]) => (
+              <div key={col} className="flex justify-between items-center py-3 border-b border-white/5 last:border-0 group transition-all">
+                <span className="text-xs font-bold text-slate-400 group-hover:text-white transition-colors truncate max-w-[150px] uppercase tracking-wider">{col}</span>
+                <Badge variant="outline" className="text-[9px] uppercase font-black border-white/10 text-emerald-500 bg-white/5">{dtype}</Badge>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Diagnostic Grid */}
+        <motion.div 
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           className="lg:col-span-2 space-y-8"
+        >
+          <div className="glass-card p-10 border-white/5">
+             <div className="flex items-center justify-between mb-10">
+                <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400 border border-purple-500/10">
+                        <Target className="h-6 w-6" />
+                    </div>
+                    <div>
+                        <h3 className="font-black uppercase text-xs tracking-[0.2em] text-white">Optimization Profile</h3>
+                        <p className="text-[10px] text-slate-500 font-medium italic">Heuristic Signature</p>
+                    </div>
+                </div>
+                <Badge className="bg-emerald-500 text-black font-black uppercase text-[9px] tracking-widest px-4 h-6">Active</Badge>
+             </div>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/5 space-y-2">
+                   <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">Inbound Target</p>
+                   <p className="text-2xl font-black text-white capitalize truncate">
+                      {analysisData?.suggested_target || "Null"}
+                   </p>
+                </div>
+                <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/5 space-y-2">
+                   <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">Detected Task</p>
+                   <p className="text-2xl font-black text-emerald-500 capitalize">
+                      {analysisData?.task_type || "N/A"}
+                   </p>
+                </div>
+             </div>
+          </div>
+
+          <div className="glass-card p-10 border-white/5">
+             <div className="flex items-center gap-4 mb-10">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 border border-amber-500/10">
+                   <Microscope className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-black uppercase text-xs tracking-[0.2em] text-white">Payload Metrics</h3>
+                  <p className="text-[10px] text-slate-500 font-medium italic">Dimensionality Overview</p>
+                </div>
+             </div>
+             <div className="grid grid-cols-2 gap-8">
+                <div className="space-y-1">
+                   <p className="text-4xl font-black text-white leading-none">
+                      {analysisData?.basic_statistics?.shape?.[0]?.toLocaleString() || 0}
+                   </p>
+                   <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-2">Samples Detected</p>
+                </div>
+                <div className="space-y-1">
+                   <p className="text-4xl font-black text-white leading-none">
+                      {analysisData?.basic_statistics?.shape?.[1] || 0}
+                   </p>
+                   <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-2">Feature Vectors</p>
+                </div>
+             </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Advanced Visualizations */}
+      {analysisData?.visualizations && Object.keys(analysisData.visualizations).length > 0 && (
+         <motion.div 
+           initial={{ opacity: 0, y: 30 }}
+           animate={{ opacity: 1, y: 0 }}
+           className="glass-card overflow-hidden border-white/5"
+         >
+            <Tabs defaultValue="distributions" className="w-full">
+                <TabsList className="bg-white/2 border-b border-white/5 p-0 h-16 w-full justify-start rounded-none">
+                    <TabsTrigger value="distributions" className="h-full px-10 rounded-none font-black uppercase text-[10px] tracking-widest border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:bg-white/[0.02] transition-all">
+                        Linear Distributions
+                    </TabsTrigger>
+                    <TabsTrigger value="correlations" className="h-full px-10 rounded-none font-black uppercase text-[10px] tracking-widest border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:bg-white/[0.02] transition-all">
+                        Correlation Matrix
+                    </TabsTrigger>
+                    <TabsTrigger value="quality" className="h-full px-10 rounded-none font-black uppercase text-[10px] tracking-widest border-b-2 border-transparent data-[state=active]:border-emerald-500 data-[state=active]:bg-white/[0.02] transition-all">
+                        Data Integrity Map
+                    </TabsTrigger>
+                </TabsList>
+                
+                <div className="p-10">
+                    <TabsContent value="distributions" className="mt-0">
+                        <div className="grid md:grid-cols-2 gap-12">
+                            {analysisData.visualizations.target_distribution && (
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2 text-emerald-500/80 font-black text-[9px] uppercase tracking-widest">
+                                        <Info className="h-3 w-3" />
+                                        Target Skew Diagnostics
+                                    </div>
+                                    <PlotlyChart data={analysisData.visualizations.target_distribution} />
+                                </div>
+                            )}
+                            {analysisData.visualizations.numeric_distributions && (
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-2 text-emerald-500/80 font-black text-[9px] uppercase tracking-widest">
+                                        <Info className="h-3 w-3" />
+                                        Numeric Variance Audit
+                                    </div>
+                                    <PlotlyChart data={analysisData.visualizations.numeric_distributions} />
+                                </div>
+                            )}
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="correlations" className="mt-0">
+                        {analysisData.visualizations.correlation_heatmap && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-2 text-emerald-500/80 font-black text-[9px] uppercase tracking-widest">
+                                    <TrendingUp className="h-3 w-3" />
+                                    Multivariate Correlation Matrix
+                                </div>
+                                <PlotlyChart data={analysisData.visualizations.correlation_heatmap} />
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    <TabsContent value="quality" className="mt-0">
+                        {analysisData.visualizations.missing_values && (
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-2 text-emerald-500/80 font-black text-[9px] uppercase tracking-widest">
+                                    <ShieldCheck className="h-3 w-3" />
+                                    Data Nullity Heatmap
+                                </div>
+                                <PlotlyChart data={analysisData.visualizations.missing_values} />
+                            </div>
+                        )}
+                    </TabsContent>
+                </div>
+            </Tabs>
+         </motion.div>
       )}
 
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={onBack}>
+      {/* Navigation Protocols */}
+      <div className="flex justify-between items-center pt-12 border-t border-white/5">
+        <Button variant="outline" onClick={onBack} className="glass-morphism border-white/10 px-10 h-14 font-black uppercase text-[10px] tracking-widest hover:bg-white/5">
           Back
         </Button>
         <Button
           size="lg"
-          variant="gradient"
+          className="gradient-primary px-14 h-16 font-black uppercase tracking-[0.2em] shadow-glow border-none"
           onClick={onNext}
         >
-          Next: Train Models
+          Initialize Synthesis &rarr;
         </Button>
       </div>
     </div>

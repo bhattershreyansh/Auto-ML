@@ -2,90 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
-    --background: 220 20% 97%;
-    --foreground: 240 10% 15%;
+    --background: 220 15% 4.8%; /* Metallic Obsidian: Deep Neutral Dark */
+    --foreground: 210 40% 98%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 15%;
+    --muted: 217.2 32.6% 12%;
+    --muted-foreground: 215 20.2% 55.1%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 15%;
+    --popover: 220 15% 4.8%;
+    --popover-foreground: 210 40% 98%;
 
-    --primary: 262 83% 58%;
-    --primary-foreground: 0 0% 100%;
-    --primary-glow: 280 90% 70%;
+    --border: 220 15% 15%;
+    --input: 220 15% 15%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 240 10% 15%;
+    --card: 220 15% 6.8%; /* Slightly lighter obsidian for cards */
+    --card-foreground: 210 40% 98%;
 
-    --muted: 220 14% 95%;
-    --muted-foreground: 220 9% 46%;
+    --primary: 161 72% 48%; /* High-Intensity Emerald */
+    --primary-foreground: 222.2 47.4% 1.2%;
 
-    --accent: 160 84% 39%;
-    --accent-foreground: 0 0% 100%;
+    --secondary: 199 89% 48%; /* Cyber Cyan */
+    --secondary-foreground: 210 40% 98%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 222.2 47.4% 1.2%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 262 83% 58%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
 
+    --ring: 161 72% 48%;
     --radius: 0.75rem;
 
-    --gradient-primary: linear-gradient(135deg, hsl(262 83% 58%), hsl(280 90% 70%));
-    --gradient-accent: linear-gradient(135deg, hsl(160 84% 39%), hsl(170 75% 50%));
-    --gradient-subtle: linear-gradient(180deg, hsl(220 20% 99%), hsl(220 20% 97%));
-    
-    --shadow-sm: 0 1px 2px 0 hsl(240 10% 15% / 0.05);
-    --shadow-md: 0 4px 6px -1px hsl(240 10% 15% / 0.1);
-    --shadow-lg: 0 10px 25px -5px hsl(240 10% 15% / 0.15);
-    --shadow-glow: 0 0 30px hsl(262 83% 58% / 0.3);
-
-    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .dark {
-    --background: 240 10% 8%;
-    --foreground: 0 0% 98%;
-
-    --card: 240 10% 12%;
-    --card-foreground: 0 0% 98%;
-
-    --popover: 240 10% 12%;
-    --popover-foreground: 0 0% 98%;
-
-    --primary: 262 83% 58%;
-    --primary-foreground: 0 0% 100%;
-    --primary-glow: 280 90% 70%;
-
-    --secondary: 240 10% 15%;
-    --secondary-foreground: 0 0% 98%;
-
-    --muted: 240 10% 15%;
-    --muted-foreground: 220 9% 65%;
-
-    --accent: 160 84% 39%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 240 10% 20%;
-    --input: 240 10% 20%;
-    --ring: 262 83% 58%;
-
-    --gradient-primary: linear-gradient(135deg, hsl(262 83% 58%), hsl(280 90% 70%));
-    --gradient-accent: linear-gradient(135deg, hsl(160 84% 39%), hsl(170 75% 50%));
-    --gradient-subtle: linear-gradient(180deg, hsl(240 10% 10%), hsl(240 10% 8%));
-    
-    --shadow-glow: 0 0 30px hsl(262 83% 58% / 0.4);
+    --gradient-primary: linear-gradient(135deg, hsl(161 72% 48%), hsl(199 89% 48%));
+    --gradient-glass: linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.005));
   }
 }
 
@@ -95,33 +45,57 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased selection:bg-primary/30;
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* Composite Background: Solid -> Grid -> Atmosphere */
+    background-image: 
+      radial-gradient(circle at 50% -20%, hsla(161, 72%, 48%, 0.08), transparent 70%),
+      radial-gradient(circle at -20% 50%, hsla(199, 89%, 48%, 0.05), transparent 50%),
+      linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+    background-attachment: fixed;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
+    @apply font-black tracking-tight text-white;
   }
 }
 
 @layer utilities {
-  .gradient-primary {
-    background: var(--gradient-primary);
+  .glass-card {
+    @apply bg-card/60 backdrop-blur-sm border border-white/5 shadow-2xl;
+    background-image: var(--gradient-glass);
   }
-  
-  .gradient-accent {
-    background: var(--gradient-accent);
+
+  .glass-morphism {
+    @apply bg-white/5 backdrop-blur-md border border-white/5;
   }
-  
-  .gradient-subtle {
-    background: var(--gradient-subtle);
+
+  .mesh-gradient {
+    @apply min-h-screen relative;
+    background-color: hsl(var(--background));
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-br from-white via-emerald-400 to-cyan-500;
   }
   
   .shadow-glow {
-    box-shadow: var(--shadow-glow);
+    box-shadow: 0 0 30px -10px hsla(161, 72%, 48%, 0.4);
   }
-  
-  .transition-smooth {
-    transition: var(--transition-smooth);
+
+  .gradient-primary {
+    @apply bg-gradient-to-br from-emerald-500 to-cyan-600 border-none;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full;
   }
 }

@@ -3,7 +3,7 @@ import numpy as np
 import logging
 from typing import Tuple, Dict, Any, Optional, Union
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.preprocessing import LabelEncoder, StandardScaler, OneHotEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler, OneHotEncoder, RobustScaler
 from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -17,7 +17,8 @@ from sklearn.ensemble import (
 from xgboost import XGBClassifier, XGBRegressor
 import optuna
 from sklearn.linear_model import LogisticRegression
-from typing import Optional, Union, Tuple, Dict, Any
+import shap
+from typing import Optional, Union, Tuple, Dict, Any, List
 
 logging.basicConfig(level=logging.INFO)
 
@@ -62,7 +63,7 @@ PARAM_GRIDS = {
         'model__C': [0.1, 1.0, 10.0],
         'model__penalty': ['l2'],
         'model__solver': ['lbfgs', 'liblinear'],
-        'model__max_iter': [200, 500]
+        'model__max_iter': [500, 1000]
     },
     "XGBClassifier": {
         'model__n_estimators': [100, 200, 300],
@@ -104,7 +105,7 @@ def build_preprocessor(X: pd.DataFrame, scale_numeric: bool = True) -> ColumnTra
     
     Args:
         X: Feature dataframe
-        scale_numeric: Whether to apply StandardScaler to numeric features
+        scale_numeric: Whether to apply scaling to numeric features
     
     Returns:
         ColumnTransformer: Fitted preprocessing pipeline
@@ -113,12 +114,12 @@ def build_preprocessor(X: pd.DataFrame, scale_numeric: bool = True) -> ColumnTra
     numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
     categorical_features = X.select_dtypes(include=['object', 'category']).columns.tolist()
     
-    # Numeric pipeline: impute + optional scaling
+    # Numeric pipeline: impute + optional robust scaling to handle outliers preventing matmul overflow
     numeric_transformer_steps = [
         ('imputer', SimpleImputer(strategy='median')),
     ]
     if scale_numeric:
-        numeric_transformer_steps.append(('scaler', StandardScaler()))
+        numeric_transformer_steps.append(('scaler', RobustScaler()))
     
     numeric_transformer = Pipeline(steps=numeric_transformer_steps)
     
@@ -240,6 +241,108 @@ def tune_with_optuna(
     except Exception as e:
         logging.error(f"Optuna tuning failed: {e}")
         return None
+
+
+def calculate_insights(pipeline: Pipeline, X_train: pd.DataFrame) -> List[Dict[str, Any]]:
+    """
+    Calculate feature importance using SHAP values with robust explainer logic.
+    
+    Args:
+        pipeline: Fitted scikit-learn Pipeline
+        X_train: Original training features before preprocessing
+        
+    Returns:
+        List of {feature: str, importance: float} sorted by importance
+    """
+    try:
+        logging.info("🧠 Calculating SHAP insights with high-precision explainer...")
+        
+        # 1. Get components
+        preprocessor = pipeline.named_steps.get('preprocessor')
+        model = pipeline.named_steps.get('model')
+        
+        if not preprocessor or not model:
+            return []
+
+        # 2. Extract feature names
+        feature_names = preprocessor.get_feature_names_out()
+        
+        # 3. Take a representative sample (max 100 rows for speed and memory)
+        sample_size = min(len(X_train), 100)
+        X_sample = X_train.sample(n=sample_size, random_state=42)
+        
+        # 4. Transform and standardize data type (Ensures consistency for SHAP C++ backend)
+        X_transformed = preprocessor.transform(X_sample)
+        if hasattr(X_transformed, "toarray"):
+            X_transformed = X_transformed.toarray()
+        X_transformed = np.asarray(X_transformed, dtype=np.float64)
+        
+        # 5. Determine model type for optimized explainer selection
+        model_name = model.__class__.__name__
+        is_classifier = hasattr(model, "predict_proba")
+        shap_values = None
+
+        try:
+            # Try optimized TreeExplainer for tree-based models (XGB, RF, GBT)
+            if any(tech in model_name for tech in ["XGB", "Forest", "Boosting"]):
+                logging.info(f"Using TreeExplainer for {model_name}")
+                # Use interventional approach with background data to avoid model dump parsing errors
+                explainer = shap.TreeExplainer(model, X_transformed[:50], feature_perturbation='interventional')
+                shap_values = explainer(X_transformed, check_additivity=False)
+            else:
+                # Default Explainer (automatically selects Kernel or Linear)
+                explainer = shap.Explainer(model, X_transformed)
+                shap_values = explainer(X_transformed, check_additivity=False)
+        except Exception as e:
+            logging.warning(f"⚠️ Primary SHAP explainer failed: {e}. Executing robust callback...")
+            
+            # Robust Fallback: Use Function-based Explainer
+            # For classifiers, use probabilities (predict_proba) for much better granularity
+            if is_classifier:
+                # Wrap predict_proba to return numeric results SHAP can handle
+                def predict_wrapper(x):
+                    return model.predict_proba(x)
+                
+                explainer = shap.Explainer(predict_wrapper, X_transformed)
+                shap_values = explainer(X_transformed)
+            else:
+                explainer = shap.Explainer(model.predict, X_transformed)
+                shap_values = explainer(X_transformed)
+
+        # 6. Aggregate SHAP values for global importance (Mean Absolute Value)
+        if shap_values is not None:
+            vals = shap_values.values
+            
+            # Handle multi-class (3D) or single-output (2D)
+            if len(vals.shape) == 3:
+                # Average across classes or select positive class if binary
+                if vals.shape[2] == 2:
+                    # Binary: use positive class values
+                    avg_shap = np.abs(vals[:, :, 1]).mean(axis=0)
+                else:
+                    # Multi-class: sum across all class importance
+                    avg_shap = np.abs(vals).mean(axis=(0, 2))
+            else:
+                # Regression or simple output
+                avg_shap = np.abs(vals).mean(axis=0)
+
+            # 7. Map back to feature names and sort
+            insights = []
+            for name, value in zip(feature_names, avg_shap):
+                # Clean up nested pipeline names (e.g., 'num__age' -> 'age')
+                clean_name = name.split('__')[-1]
+                insights.append({"feature": clean_name, "importance": float(value)})
+                
+            insights = sorted(insights, key=lambda x: x["importance"], reverse=True)
+            return insights[:15] # Return top 15 features
+            
+        return []
+        
+    except Exception as e:
+        logging.error(f"❌ Critical SHAP failure: {e}")
+        return []
+
+
 
 
 def train_model(
@@ -377,11 +480,15 @@ def train_model(
     # Predict
     y_pred = pipeline.predict(X_test)
     
+    # Calculate SHAP insights (X_train is the original, raw data)
+    insights = calculate_insights(pipeline, X_train)
+    
     # Prepare evaluation report
     if is_classification:
         report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
         report["accuracy"] = float(accuracy_score(y_test, y_pred))
         report["f1_macro"] = float(f1_score(y_test, y_pred, average="macro", zero_division=0))
+        report["insights"] = insights
         report["meta"] = {
             "task": "classification",
             "model": model_name,
@@ -397,6 +504,7 @@ def train_model(
             "r2_score": float(r2_score(y_test, y_pred)),
             "mse": float(mean_squared_error(y_test, y_pred)),
             "rmse": float(np.sqrt(mean_squared_error(y_test, y_pred))),
+            "insights": insights,
             "meta": {
                 "task": "regression",
                 "model": model_name,

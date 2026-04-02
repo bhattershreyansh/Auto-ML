@@ -9,6 +9,32 @@ export const api = axios.create({
   },
 });
 
+// Helper to fetch the auth token dynamically
+let getClerkToken: (() => Promise<string | null>) | null = null;
+
+export const setTokenFetcher = (fetcher: () => Promise<string | null>) => {
+  getClerkToken = fetcher;
+};
+
+// Request interceptor for dynamic auth
+api.interceptors.request.use(async (config) => {
+  if (getClerkToken) {
+    try {
+      const token = await getClerkToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      } else {
+        console.warn('API: Clerk token returned null');
+      }
+    } catch (err) {
+      console.error('API: Failed to fetch Clerk token', err);
+    }
+  } else {
+    console.warn('API: Token fetcher not registered yet');
+  }
+  return config;
+});
+
 export interface UploadResponse {
   filename: string;
   filepath: string;
