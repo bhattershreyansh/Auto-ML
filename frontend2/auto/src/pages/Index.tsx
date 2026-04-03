@@ -215,7 +215,11 @@ const Index = () => {
       <footer className="py-16 border-t border-white/5 bg-[#020617] relative z-10">
         <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg- emerald-500/20 flex items-center justify-center font-black text-emerald-500">AP</div>
+            <img 
+              src="/image.png" 
+              alt="Logo" 
+              className="w-10 h-10 object-contain rounded-lg opacity-80 hover:opacity-100 transition-opacity" 
+            />
             <p className="text-[10px] text-slate-600 font-black uppercase tracking-[0.3em]">
               AutoPilot ML Command Center
             </p>

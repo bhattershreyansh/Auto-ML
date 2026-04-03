@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker, relationship
 import datetime
 import os
 
-DATABASE_URL = "sqlite:///./autopilot.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./autopilot.db")
 
 Base = declarative_base()
 
@@ -46,7 +46,12 @@ class Experiment(Base):
 
 # Note: Create engine and session local in a separate function to avoid issues during import
 from sqlalchemy import create_engine
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+# Only use SQLite-specific connect_args if the URL starts with sqlite
+is_sqlite = DATABASE_URL.startswith("sqlite")
+engine_args = {"connect_args": {"check_same_thread": False}} if is_sqlite else {}
+
+engine = create_engine(DATABASE_URL, **engine_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
