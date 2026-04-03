@@ -41,7 +41,13 @@ def clean_for_json(obj):
         return obj
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+_groq_client = None
+
+def get_groq_client():
+    global _groq_client
+    if _groq_client is None and GROQ_API_KEY:
+        _groq_client = Groq(api_key=GROQ_API_KEY)
+    return _groq_client
 
 PROMPT_TEMPLATE = """
 You are an expert data analyst. Here's the dataset summary:
@@ -71,14 +77,15 @@ def call_llm_for_analysis(summary: str) -> dict:
     Calls LLM to get comprehensive dataset analysis.
     Returns a dict with analysis and visualization suggestions.
     """
-    if not groq_client:
+    clt = get_groq_client()
+    if not clt:
         logging.warning("No LLM client available. Skipping LLM suggestions.")
         return {}
     
     prompt = PROMPT_TEMPLATE.format(summary=summary)
     
     try:
-        response = groq_client.chat.completions.create(
+        response = clt.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,

@@ -9,14 +9,17 @@ from dotenv import load_dotenv
 load_dotenv("../.env") 
 load_dotenv()
 
+IS_PRODUCTION = os.getenv("ENVIRONMENT") == "production"
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
-# For testing/dev, if you don't have CLERK_JWKS_URL, we'll try to derive it from the secret
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "https://api.clerk.com/v1/jwks")
-
 security = HTTPBearer()
+
 
 def get_jwks():
     """Fetch the JWKS from Clerk using the Secret Key."""
+    if not CLERK_SECRET_KEY:
+        # If no key, we can't fetch JWKS
+        return None
     try:
         headers = {"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
         response = requests.get(CLERK_JWKS_URL, headers=headers)
@@ -33,6 +36,12 @@ async def get_current_user(auth: HTTPAuthorizationCredentials = Security(securit
     token = auth.credentials
     
     if not CLERK_SECRET_KEY:
+        if IS_PRODUCTION:
+             # In production, we MUST have a valid secret key. No fallbacks!
+             raise HTTPException(
+                 status_code=500, 
+                 detail="CRITICAL: CLERK_SECRET_KEY is missing on production cluster. Multi-tenancy compromised."
+             )
         # Fallback for development ONLY
         return "dev_user_123"
 

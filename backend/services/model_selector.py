@@ -9,7 +9,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+_groq_client = None
+
+def get_groq_client():
+    global _groq_client
+    if _groq_client is None and GROQ_API_KEY:
+        _groq_client = Groq(api_key=GROQ_API_KEY)
+    return _groq_client
 
 PROMPT_TEMPLATE = """
 You are an expert machine learning engineer. Given the sample data below and information about the target column, please:
@@ -57,7 +63,8 @@ def call_llm_model_selector(sample_df: pd.DataFrame, target_col: str) -> dict:
     Calls the LLM to get the best and other ML model suggestions with explanations.
     Returns a dict with keys: best_model, other_options.
     """
-    if not groq_client:
+    clt = get_groq_client()
+    if not clt:
         logging.warning("No LLM client available, returning empty suggestions.")
         return {}
 
@@ -81,7 +88,7 @@ def call_llm_model_selector(sample_df: pd.DataFrame, target_col: str) -> dict:
         )
 
         print("🤖 Calling LLM for model suggestions...")
-        response = groq_client.chat.completions.create(
+        response = clt.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
