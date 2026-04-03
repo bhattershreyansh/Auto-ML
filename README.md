@@ -1,121 +1,78 @@
-# AutoPilot ML: Premium Open-Source AutoML 🚀
+# AutoPilot ML: Production-Ready AutoML Suite 🚀
 
-**AutoPilot ML** is a state-of-the-art, end-to-end AutoML platform designed to automate the entire machine learning lifecycle with a focus on **explainability**, **production-readiness**, and **premium UX**. It features a stunning "Metallic Obsidian" glassmorphism interface and a hardened MLOps backend.
+**AutoPilot ML** is a high-performance, end-to-end Automated Machine Learning platform built for data scientists and MLOps engineers who need **speed**, **explainability**, and **persistence**. It automates the entire ML lifecycle—from raw data ingestion to production-ready deployment—with a focus on rigorous statistical auditing and intelligent model optimization.
 
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-10b981.svg)
 ![React](https://img.shields.io/badge/React-18.3+-61dafb.svg)
+![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-blue.svg)
 ![MLOps](https://img.shields.io/badge/MLOps-Production--Ready-purple.svg)
-![Design](https://img.shields.io/badge/Design-Metallic--Obsidian-cyan.svg)
 
 ---
 
-## ✨ Features
+## 🧠 Core Intelligence Engine
 
-### 💎 **Premium "Metallic Obsidian" UI**
-- **Glassmorphism Design**: High-end aesthetic with vibrant HSL tailored colors (Emerald, Cyan, Purple).
-- **Interactive Wizard**: A seamless step-by-step guided workflow from raw data to production deployment.
-- **Micro-Animations**: Smooth Framer Motion transitions and hover effects for an alive, interactive feel.
+### 📊 **1. Automated Exploratory Data Analysis (EDA)**
+Our analytical engine doesn't just show stats—it audits your data.
+- **Statistical Auditing**: Automated calculation of skewness, kurtosis, and numeric variance across the entire dataset.
+- **LLM-Powered Insights**: Integrates with LLMs to provide strategic dataset descriptions and suggest optimal target columns based on semantic context.
+- **Data Quality Guards**: Detects constant columns, high-cardinality features, and potential target leakage before training begins.
+- **Interactive Visualizations**: High-fidelity Plotly heatmaps and distribution plots with a consistent Obsidian aesthetic.
 
-### 🔬 **Exploratory Intelligence**
-- **XAI Diagnostics (SHAP)**: Deep feature importance insights using high-precision SHAP explainers.
-- **Intelligent Analysis**: Automated EDA with correlation matrices, target skew diagnostics, and numeric variance audits.
-- **Visual Telemetry**: Interactive Plotly charts themed perfectly for dark-mode environments.
+### 🧹 **2. Defensive Data Cleaning**
+Skip the manual preprocessing. Our pipeline handles the "dirty work" automatically:
+- **Intelligent Imputation**: Multi-strategy handling of missing values (Mean/Median/Mode) based on column distribution.
+- **Outlier Handling**: Robust IQR-based clipping and Winsorization to protect models from training noise.
+- **Automated Encoding**: Seamless transformation of categorical variables using Label and One-Hot encoding pipelines.
+- **Duplicate Removal**: Scans and purges redundant rows to ensure unbiased evaluation.
 
-### 🛡️ **Hardened MLOps Backend**
-- **Target Leakage Guards**: Scans and purges features with >98% correlation to prevent "model cheating."
-- **Class Imbalance Auto-Correction**: Injects `class_weight='balanced'` and `scale_pos_weight` to ensure minority classes are respected.
-- **Defensive Cleaning**: Automatic dropping of columns with >50% missing data and IQR Winsorization for outlier clipping.
+### 🤖 **3. Smart Model Selection & Optimization**
+We use AI to find the best AI for your data:
+- **AI-Driven Recommendation**: Uses LLMs to evaluate your dataset's shape and cardinality to recommend the most compatible architecture (XGBoost, Random Forest, etc.).
+- **Hyperparameter Mastery**: Integrated **Optuna** and **GridSearchCV** for Bayesian optimization. We don't just train—we fine-tune for elite precision.
+- **Competitive Election**: Train multiple architectures side-by-side and review a professional leaderboard of performance metrics.
 
-### 🚀 **Deployment Suite**
-- **Interactive "What-If" Simulator**: Move feature sliders to get real-time prediction feedback from the trained model.
-- **Champion Election**: Compare multiple architectures and elect a "Champion" for final synthesis and deployment.
-- **Terminal Sandbox**: Auto-generates production-ready **FastAPI** code and **Dockerfiles** tailored exactly to your elected model.
-- **One-Click Manifest**: Export your entire experiment and weights as a standardized deployment package.
+---
+
+## 🔬 Explainable AI (XAI)
+We believe in "glass-box" models, not black boxes.
+- **SHAP Integration**: Every trained model includes a high-precision SHAP (SHapley Additive exPlanations) audit.
+- **Global Feature Importance**: Identify exactly which features are driving your model's decisions.
+- **Interactive Impact Plots**: Visualize the correlation between feature values and model outputs.
+
+---
+
+## 🛡️ Production & MLOps Hardening
+Built to stay alive in production, not just run on your laptop.
+- **Neon PostgreSQL Persistence**: All experiments, data summaries, and model paths are synced to a cloud-hosted Neon database for permanent session history.
+- **Clerk Multi-Tenancy**: Secure, isolated workspaces for every user. Your data and experiments are strictly private.
+- **Fast Startup (Lazy Loading)**: Refactored with lazy connection pooling to ensure immediate port-binding and 99.9% deployment reliability on platforms like Render.
+- **Deployment Export**: One-click generation of production-ready FastAPI wrappers and Dockerfiles for your "Champion" model.
 
 ---
 
 ## 🛠️ Technology Stack
 
-### **Backend (Python Engine)**
-- **FastAPI**: Asynchronous, high-performance API kernel.
-- **Scikit-Learn**: The backbone for preprocessing pipelines and classical model architectures.
-- **XGBoost**: Gradient boosting for elite predictive performance.
-- **SHAP**: Kernel and Tree explainers for model transparency.
-- **Optuna**: Bayesian optimization for hyperparameter tuning.
-- **Neon/PostgreSQL**: Cloud-managed relational database for persistent session history.
+### **The Backend (ML Engine)**
+- **FastAPI**: Asynchronous API kernel for high-throughput inference.
+- **Scikit-Learn**: Gold-standard preprocessing and classical architectures.
+- **XGBoost**: Gradient boosting for industry-leading predictive power.
+- **Optuna**: Bayesian optimization framework for automated tuning.
+- **SHAP**: Game-theoretic approach to model explainability.
+- **SQLAlchemy + PostgreSQL**: Robust, relational persistence layer.
 
-### **Frontend (React Dashboard)**
-- **React 18 + TypeScript**: Type-safe component architecture.
-- **Tailwind CSS**: Utility-first styling for the Obsidian design system.
-- **Shadcn/UI**: Modern, accessible UI primitives.
-- **Plotly.js**: High-fidelity interactive data visualizations.
-- **Framer Motion**: Smooth interface animations.
-
----
-
-## 🚀 Getting Started
-
-### 📦 Installation
-
-1. **Clone the Project**
-   ```bash
-   git clone https://github.com/bhattershreyansh/Auto-ML.git
-   cd Auto-ML
-   ```
-
-2. **Backend Setup**
-   ```bash
-   cd backend
-   python -m venv .venv
-   source .venv/bin/activate  # Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-3. **Frontend Setup**
-   ```bash
-   cd frontend2/auto
-   npm install
-   ```
-
-### 🎮 Running Locally
-
-1. **Start the API (Port 8000)**
-   ```bash
-   cd backend
-   uvicorn main:app --reload
-   ```
-
-2. **Start the Dashboard (Port 3000)**
-   ```bash
-   cd frontend2/auto
-   npm run dev
-   ```
+### **The Frontend (Intelligence Portal)**
+- **React 18**: Component-level state management and rapid UI updates.
+- **Tailwind CSS**: Utility-first styling for a custom Obsidian design system.
+- **Framer Motion**: State-driven micro-animations for an alive interface feel.
+- **Plotly.js**: Professional-grade interactive data charting.
 
 ---
 
-## 📡 Core API Lifecycle
-
-| Endpoint | Method | Purpose |
-| :--- | :--- | :--- |
-| `/upload` | `POST` | Ingest raw CSV data and initialize session. |
-| `/analyze` | `POST` | Generate EDA stats and LLM-powered insights. |
-| `/clean` | `POST` | Execute defensive cleaning strategies. |
-| `/train` | `POST` | Execute model training with optional Optuna tuning. |
-| `/predict` | `POST` | Real-time single-row inference for simulators. |
-| `/download-assets` | `GET` | Export champion model and sanitized data as ZIP. |
+## 🚀 Deployment Sandbox
+Test your model before it goes live.
+- **Interactive "What-If" Simulator**: Move sliders to adjust feature values and see real-time prediction updates.
+- **Direct Prediction API**: Exposed `/predict` endpoint for low-latency inference from external applications.
+- **Code Generator**: Automatic synthesis of Python client code for your specific model deployment.
 
 ---
-
-## 🎯 The AutoPilot Workflow
-
-1. **Ingest**: Upload any structured CSV dataset.
-2. **Audit**: Review data quality reports and LLM-derived strategic advice.
-3. **Refine**: Clean data and handle missingness/outliers automatically.
-4. **Compare**: Train multiple models (XGB, RF, Logistic) and review metrics side-by-side.
-5. **Elect**: Choose your Champion model and witness it retuned for production.
-6. **Simulate**: Test the model's decision boundaries using interactive sliders.
-7. **Deploy**: Copy the generated Docker/FastAPI code and build your production service.
-
----
-
-**Built with Precision for the ML Community** 🥂
+**AutoPilot ML: Automate with Precision.** 🥂🚀
