@@ -44,6 +44,8 @@ class Experiment(Base):
     
     owner = relationship("User", back_populates="experiments")
 
+from sqlalchemy import create_engine
+
 # Engine and sessionmaker are now lazy-loaded to prevent hangs at import time
 _engine = None
 _SessionLocal = None
