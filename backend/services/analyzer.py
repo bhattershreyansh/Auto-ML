@@ -173,11 +173,27 @@ def correlation_analysis(df: pd.DataFrame) -> Dict[str, Any]:
 
 def generate_enhanced_visualizations(df: pd.DataFrame, target_col: str = None) -> Dict[str, str]:
     """
-    Generate comprehensive Plotly visualizations for EDA.
-    Returns dict of {viz_name: plotly_json}.
+    Generate comprehensive Plotly visualizations for EDA using Obsidian Theme.
     """
     graphs = {}
     
+    # 🎨 Inject 'Metallic Obsidian' Theme into Plotly
+    obsidian_template = go.layout.Template(
+        layout=go.Layout(
+            plot_bgcolor='rgba(0,0,0,0)', # Transparent
+            paper_bgcolor='rgba(0,0,0,0)', # Transparent
+            font=dict(color='#cbd5e1', family='system-ui, sans-serif'), # slate-300
+            xaxis=dict(gridcolor='rgba(255,255,255,0.05)', zerolinecolor='rgba(255,255,255,0.05)', title_font=dict(color='#94a3b8', size=10)),
+            yaxis=dict(gridcolor='rgba(255,255,255,0.05)', zerolinecolor='rgba(255,255,255,0.05)', title_font=dict(color='#94a3b8', size=10)),
+            colorway=['#10b981', '#a855f7', '#f59e0b', '#06b6d4', '#ec4899', '#3b82f6'], # Emerald, Purple, Amber, Cyan
+            title=dict(font=dict(color='#f8fafc', size=14)),
+            hovermode='closest',
+            margin=dict(l=40, r=40, t=60, b=40)
+        )
+    )
+    pio.templates["obsidian"] = obsidian_template
+    pio.templates.default = "obsidian"
+
     numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
     categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
     

@@ -1,34 +1,43 @@
-import { Download, CheckCircle2, BarChart3, Trophy, Sparkles, BrainCircuit, ShieldCheck, Cpu, ArrowLeftRight, FileJson } from "lucide-react";
+import { Download, CheckCircle2, BarChart3, Trophy, Sparkles, BrainCircuit, ShieldCheck, Cpu, ArrowLeftRight, FileJson, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import { downloadAssetsZip } from "@/lib/api";
 import { SHAPChart } from "@/components/SHAPChart";
+import { WhatIfSimulator } from "@/components/WhatIfSimulator";
+import { DeploymentTerminal } from "@/components/DeploymentTerminal";
 import { cn } from "@/lib/utils";
 
 interface ResultsStepProps {
   metrics: any;
   comparisonData?: any;
+  modelPath?: string;
+  analysisData?: any;
   onRestart: () => void;
 }
 
-export function ResultsStep({ metrics, comparisonData, onRestart }: ResultsStepProps) {
-  const handleExport = () => {
-    const results = {
-      training_metrics: metrics,
-      comparison: comparisonData,
-      timestamp: new Date().toISOString(),
-    };
-    
-    const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `autopilot-results-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+export function ResultsStep({ metrics, comparisonData, modelPath, analysisData, onRestart }: ResultsStepProps) {
+  const handleDownloadZip = async () => {
+    if (!modelPath) return;
+    try {
+      toast({
+         title: "Archiving Engine",
+         description: "Packaging your deployment .joblib model and dependencies...",
+      });
+      await downloadAssetsZip(modelPath);
+      toast({
+         title: "Export Success",
+         description: "Your autopilot-deployment.zip is ready.",
+      });
+    } catch (err) {
+      toast({
+         title: "Export Failed",
+         description: "Failed to assemble the .zip manifest.",
+         variant: "destructive"
+      });
+    }
   };
 
   const insights = metrics?.insights || [];
@@ -132,89 +141,104 @@ export function ResultsStep({ metrics, comparisonData, onRestart }: ResultsStepP
         </motion.div>
       </div>
 
-      {comparisonData?.leaderboard && (
+      <div className="grid lg:grid-cols-5 gap-8">
+        {comparisonData?.leaderboard && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="lg:col-span-3 glass-card p-10 border-white/5 space-y-10"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 border border-amber-500/10">
+                 <Trophy className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-black uppercase text-xs tracking-[0.2em] text-white">Final Operational Ranking</h3>
+                <p className="text-[10px] text-slate-500 font-medium italic">Experiment Alpha-Beta Sequence</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              {comparisonData.leaderboard.slice(0, 3).map((model: any, idx: number) => (
+                <div
+                  key={idx}
+                  className={cn(
+                    "flex items-center gap-6 p-6 rounded-3xl border transition-all group",
+                    idx === 0 
+                      ? "bg-emerald-500/[0.03] border-emerald-500/20 shadow-glow" 
+                      : "bg-white/[0.02] border-white/5 hover:border-white/10"
+                  )}
+                >
+                  <div className={cn(
+                    "w-12 shrink-0 h-12 rounded-2xl flex items-center justify-center font-black text-xl border",
+                    idx === 0 
+                      ? "bg-emerald-500 text-black border-emerald-500 shadow-glow" 
+                      : "bg-white/5 text-slate-500 border-white/5"
+                  )}>
+                    0{idx + 1}
+                  </div>
+                  <div>
+                    <p className="font-black text-white uppercase text-xs tracking-wider mb-1 group-hover:text-emerald-500 transition-colors line-clamp-1">{model.model_name}</p>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                      Score: <span className="text-white">{(model.score * 100).toFixed(2)}%</span>
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {modelPath && insights.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className={cn(comparisonData?.leaderboard ? "lg:col-span-2" : "col-span-full")}
+          >
+             <WhatIfSimulator modelPath={modelPath} insights={insights} analysisData={analysisData} />
+          </motion.div>
+        )}
+      </div>
+
+      {/* Interactive Deployment Terminal */}
+      {modelPath && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="glass-card p-10 border-white/5 space-y-10"
+          className="space-y-6"
         >
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 border border-amber-500/10">
-               <Trophy className="h-6 w-6" />
-            </div>
-            <div>
-              <h3 className="font-black uppercase text-xs tracking-[0.2em] text-white">Final Operational Ranking</h3>
-              <p className="text-[10px] text-slate-500 font-medium italic">Experiment Alpha-Beta Sequence</p>
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-6">
-            {comparisonData.leaderboard.slice(0, 3).map((model: any, idx: number) => (
-              <div
-                key={idx}
-                className={cn(
-                  "flex items-center gap-6 p-6 rounded-3xl border transition-all group",
-                  idx === 0 
-                    ? "bg-emerald-500/[0.03] border-emerald-500/20 shadow-glow" 
-                    : "bg-white/[0.02] border-white/5 hover:border-white/10"
-                )}
-              >
-                <div className={cn(
-                  "w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl border",
-                  idx === 0 
-                    ? "bg-emerald-500 text-black border-emerald-500 shadow-glow" 
-                    : "bg-white/5 text-slate-500 border-white/5"
-                )}>
-                  0{idx + 1}
-                </div>
-                <div>
-                  <p className="font-black text-white uppercase text-xs tracking-wider mb-1 group-hover:text-emerald-500 transition-colors">{model.model_name}</p>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                    Score: <span className="text-white">{(model.score * 100).toFixed(2)}%</span>
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-      )}
-
-      {/* Manifest & Deploy Activity */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="p-12 rounded-[3rem] bg-emerald-500/[0.03] border border-emerald-500/10 relative overflow-hidden group"
-      >
-        <div className="flex flex-col lg:flex-row items-center justify-between gap-12 relative z-10">
-          <div className="text-center lg:text-left space-y-3">
-            <div className="flex items-center justify-center lg:justify-start gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
                <Cpu className="h-5 w-5 text-emerald-500" />
                <p className="text-emerald-500 font-black uppercase text-[10px] tracking-[0.4em]">Operational Sequence Finalized</p>
             </div>
-            <h3 className="text-2xl font-black text-white uppercase tracking-tight">Generate Experiment Manifest?</h3>
-            <p className="text-slate-500 text-sm font-medium max-w-xl">
-               Export the high-performance weight matrix and validation heuristics for production integration.
-            </p>
+            <div className="flex gap-4">
+              <Button
+                variant="outline"
+                onClick={handleDownloadZip}
+                disabled={!modelPath}
+                className="h-10 px-6 glass-morphism border-white/10 font-bold uppercase text-[10px] tracking-widest hover:bg-white/5"
+              >
+                <Download className="mr-2 h-4 w-4 text-emerald-500" />
+                Download Zip
+              </Button>
+              <Button
+                onClick={onRestart}
+                className="h-10 px-8 gradient-primary font-bold uppercase tracking-[0.1em] shadow-glow border-none"
+              >
+                Restart Pipeline <ArrowRight className="ml-2 w-4 h-4"/>
+              </Button>
+            </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row gap-6 w-full lg:w-auto">
-            <Button
-              variant="outline"
-              onClick={handleExport}
-              className="h-16 px-10 glass-morphism border-white/10 font-black uppercase text-[10px] tracking-widest hover:bg-white/5 min-w-[200px]"
-            >
-              <FileJson className="mr-3 h-4 w-4 text-emerald-500" />
-              Download Manifest
-            </Button>
-            <Button
-              onClick={onRestart}
-              className="h-16 px-12 gradient-primary font-black uppercase tracking-[0.2em] shadow-glow border-none min-w-[240px]"
-            >
-              Restart Pipeline &rarr;
-            </Button>
-          </div>
-        </div>
-      </motion.div>
+          <DeploymentTerminal 
+            modelPath={modelPath}
+            targetColumn={metrics?.meta?.target || "prediction"}
+            insights={insights}
+            analysisData={analysisData}
+          />
+        </motion.div>
+      )}
 
       <div className="flex items-center justify-center gap-4 text-[10px] text-slate-800 font-black uppercase tracking-[0.5em] pt-12 pb-6">
         <ArrowLeftRight className="h-3 w-3" />

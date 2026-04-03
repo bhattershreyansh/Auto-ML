@@ -187,3 +187,32 @@ export const compareModels = async (
   });
   return response.data;
 };
+
+export interface PredictResponse {
+  prediction: number;
+  probabilities?: number[];
+}
+
+export const predictSingle = async (modelPath: string, features: Record<string, any>): Promise<PredictResponse> => {
+  const response = await api.post<PredictResponse>('/predict', {
+    model_path: modelPath,
+    features,
+  });
+  return response.data;
+};
+
+export const downloadAssetsZip = async (modelPath: string) => {
+  const response = await api.get('/download-assets', {
+    params: { model_path: modelPath },
+    responseType: 'blob',
+  });
+  
+  const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'autopilot-deployment.zip';
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  a.remove();
+};

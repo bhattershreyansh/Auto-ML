@@ -33,6 +33,11 @@ Target column name: {target_col}
 Target column type: {target_type}
 Number of unique values in target column: {target_unique}
 
+Mathematical Matrix Profile:
+- Total Features: {total_features}
+- Categorical Feature Ratio: {cat_ratio}% 
+(Note: If Categorical Ratio is > 50%, the dataset is highly sparse. Linear models like Logistic Regression often outperform trees on sparse OHE data. If it is highly numeric, Tree ensembles like XGBoost or Random Forest are superior).
+
 Respond only with JSON in this format:
 {{
   "best_model": {{
@@ -60,12 +65,19 @@ def call_llm_model_selector(sample_df: pd.DataFrame, target_col: str) -> dict:
         target_type = str(sample_df[target_col].dtype)
         target_unique = sample_df[target_col].nunique()
         sample_text = sample_df.head(5).to_csv(index=False)
+        
+        # Calculate Matrix Heuristics
+        total_features = sample_df.shape[1] - 1
+        cat_cols = sample_df.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).shape[1]
+        cat_ratio = round((cat_cols / total_features) * 100, 2) if total_features > 0 else 0
 
         prompt = PROMPT_TEMPLATE.format(
             sample=sample_text,
             target_col=target_col,
             target_type=target_type,
             target_unique=target_unique,
+            total_features=total_features,
+            cat_ratio=cat_ratio
         )
 
         print("🤖 Calling LLM for model suggestions...")
@@ -149,37 +161,43 @@ def get_fallback_model_suggestions(df: pd.DataFrame, target_column: str) -> dict
     # Determine if classification or regression
     is_classification = (target_unique <= 10) or (target_dtype == 'object') or (target_dtype == 'bool')
     
+    # Calculate matrix sparsity
+    total_features = df.shape[1] - 1
+    cat_cols = df.drop(columns=[target_column]).select_dtypes(include=['object', 'category']).shape[1]
+    cat_ratio = (cat_cols / total_features) if total_features > 0 else 0
+    is_sparse = cat_ratio > 0.5
+    
     if is_classification:
         print("📊 Detected classification task")
-        if target_unique == 2:
-            # Binary classification
+        if is_sparse:
+            # Highly categorical/sparse data benefits heavily from linear separability
             return {
                 "best_model": {
-                    "name": "XGBClassifier",
-                    "description": "XGBoost is highly effective for classification tasks with good performance and speed."
+                    "name": "LogisticRegression",
+                    "description": "The dataset is highly categorical (>50%). Logistic Regression computes extremely fast dot-products on sparse One-Hot Encoded matrices and avoids the curse of dimensionality that plagues tree ensembles."
                 },
                 "other_options": [
                     {
                         "name": "RandomForestClassifier",
-                        "description": "Robust ensemble method excellent for binary classification with built-in feature importance and handles overfitting well"
-                    },
-                    {
-                        "name": "GradientBoostingClassifier",
-                        "description": "High-performance boosting algorithm that often achieves excellent accuracy on structured data"
+                        "description": "Robust fallback for complex non-linear combinations, though slower on sparse data."
                     }
                 ]
             }
         else:
-            # Multi-class classification
+            # Numeric/Dense data
             return {
                 "best_model": {
-                    "name": "RandomForestClassifier",
-                    "description": "Excellent for multi-class classification with natural handling of multiple classes and feature importance"
+                    "name": "XGBClassifier",
+                    "description": "Dataset is mathematically dense (numeric). XGBoost provides elite gradient-based decision boundaries that maximize dense feature splits."
                 },
                 "other_options": [
                     {
-                        "name": "GradientBoostingClassifier",
-                        "description": "Powerful boosting method that handles multi-class problems well with high accuracy potential"
+                        "name": "RandomForestClassifier",
+                        "description": "Robust ensemble method that heavily resists overfitting on dense numeric matrices."
+                    },
+                    {
+                        "name": "LogisticRegression",
+                        "description": "Provides an excellent baseline linear decision boundary."
                     }
                 ]
             }

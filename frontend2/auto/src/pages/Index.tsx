@@ -141,11 +141,6 @@ const Index = () => {
                   </div>
                 </DialogContent>
               </Dialog>
-
-              <Button variant="outline" className="glass-morphism border-white/5 h-12 px-6 font-bold uppercase text-[10px] tracking-widest hover:bg-white/5" onClick={() => window.location.reload()}>
-                <History className="h-4 w-4 mr-2 text-cyan-400" />
-                Session History
-              </Button>
             </div>
           </motion.div>
 
@@ -206,6 +201,8 @@ const Index = () => {
                   <ResultsStep
                     metrics={metrics}
                     comparisonData={comparisonData}
+                    modelPath={modelPath}
+                    analysisData={analysisData}
                     onRestart={handleRestart}
                   />
                 )}
@@ -224,7 +221,7 @@ const Index = () => {
             </p>
           </div>
           <p className="text-[10px] text-slate-700 font-black uppercase tracking-widest">
-            Licensed Terminal &bull; Secure MLOps Heuristics &bull; 2024
+            Licensed Terminal &bull; Secure MLOps Heuristics &bull; 2026
           </p>
         </div>
       </footer>

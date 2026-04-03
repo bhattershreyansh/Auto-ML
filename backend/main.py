@@ -429,6 +429,44 @@ async def get_experiments(
     return db.query(Experiment).filter(Experiment.user_id == db_user.id).order_by(Experiment.created_at.desc()).all()
 
 
+@app.get("/download-assets")
+async def download_assets(
+    model_path: str,
+    user_id: str = Depends(get_current_user)
+):
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse
+    
+    try:
+        user_dir = get_user_upload_dir(user_id)
+        model_filename = Path(model_path).name
+        model_file = user_dir / model_filename
+        
+        if not model_file.exists():
+            raise HTTPException(status_code=404, detail="Model not found")
+            
+        io_stream = io.BytesIO()
+        with zipfile.ZipFile(io_stream, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+            # Add the model
+            zip_file.write(model_file, arcname=model_filename)
+            
+            # Find and add the dataset CSV
+            for file_path in user_dir.iterdir():
+                if file_path.is_file() and file_path.suffix == '.csv':
+                    zip_file.write(file_path, arcname=file_path.name)
+                        
+        io_stream.seek(0)
+        
+        return StreamingResponse(
+            io_stream, 
+            media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="autopilot-deployment.zip"'}
+        )
+    except Exception as e:
+        logging.error(f"Error zipping assets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/health")
 async def health_check():
     return {"status": "AutoML API is running"}

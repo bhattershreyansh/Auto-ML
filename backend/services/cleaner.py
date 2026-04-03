@@ -40,15 +40,46 @@ def clean_data(filepath: str) -> str:
         raise FileNotFoundError(f"File not found: {file_path}")
     
     try:
+        import numpy as np
         df = pd.read_csv(file_path)
         
-        # Numeric columns
-        for col in df.select_dtypes(include=['number']).columns:
-            if df[col].isnull().any():
-                median = df[col].median()
-                df[col] = df[col].fillna(median)
+        # 1. Missingness Thresholding (>50% missing -> DROP)
+        missing_ratios = df.isnull().mean()
+        drop_cols = missing_ratios[missing_ratios > 0.5].index
+        if len(drop_cols) > 0:
+            logging.info(f"🚨 Dropping columns with massive missing data (>50%): {list(drop_cols)}")
+            df = df.drop(columns=drop_cols)
+            
+        # 2. Silent Type Rectification
+        for col in df.select_dtypes(include=['object', 'category']).columns:
+            try:
+                # Attempt aggressive numeric cast. If it's pure strings, it'll become NaNs.
+                parsed = pd.to_numeric(df[col], errors='coerce')
+                # If majority of data cleanly parsed to number, it was contaminated numeric data.
+                if parsed.notnull().mean() > 0.5:
+                    logging.info(f"🔧 Type Rectification: Converting '{col}' from object to numeric.")
+                    df[col] = parsed
+            except Exception:
+                pass
         
-        # Categorical columns
+        # 3. Numeric: Imputation & IQR Winsorization (Outlier Capping)
+        for col in df.select_dtypes(include=['number']).columns:
+            # Impute
+            if df[col].isnull().any():
+                df[col] = df[col].fillna(df[col].median())
+                
+            # IQR Capping (Squeeze extreme outliers down to IQR boundaries)
+            Q1 = df[col].quantile(0.25)
+            Q3 = df[col].quantile(0.75)
+            IQR = Q3 - Q1
+            # Only cap if IQR > 0 to prevent flattening binary or identical columns
+            if IQR > 0:
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                # Clip values to bounds, ignoring NaNs
+                df[col] = np.clip(df[col], lower_bound, upper_bound)
+                
+        # 4. Categorical: Mode Imputation
         for col in df.select_dtypes(include=['object', 'category']).columns:
             if df[col].isnull().any():
                 mode = df[col].mode()
@@ -60,7 +91,7 @@ def clean_data(filepath: str) -> str:
         cleaned_path = f"{base}_cleaned{ext if ext else '.csv'}"
         df.to_csv(cleaned_path, index=False)
         
-        logging.info(f"✅ Data cleaned and saved to: {cleaned_path}")
+        logging.info(f"✅ Data aggressively cleaned (Prod-Ready) and saved to: {cleaned_path}")
         return str(cleaned_path).replace("\\", "/")  # Ensure forward slashes for consistency
     
     except Exception as e:

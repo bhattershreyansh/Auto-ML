@@ -400,15 +400,44 @@ def train_model(
     label_encoder = None
     if is_classification and (y.dtype == 'object' or y.nunique() < 20):
         label_encoder = LabelEncoder()
-        y = label_encoder.fit_transform(y)
+        y = pd.Series(label_encoder.fit_transform(y), index=y.index)
         logging.info(f"✅ Target encoded. Classes: {label_encoder.classes_}")
+
+    # ================= PRODUCTION GUARD: TARGET LEAKAGE =================
+    # Prevent the model from 'cheating' by analyzing absolute correlation
+    leakage_threshold = 0.98
+    leakage_dropped = []
+    if pd.api.types.is_numeric_dtype(y):
+        for col in X.select_dtypes(include=['number']).columns:
+            # Calculate absolute correlation with target
+            corr = X[col].corr(y)
+            if pd.notna(corr) and abs(corr) >= leakage_threshold:
+                logging.warning(f"🚨 TARGET LEAKAGE DETECTED: Dropping '{col}' (Correlation: {corr:.4f}). This prevents model cheating.")
+                X = X.drop(columns=[col])
+                leakage_dropped.append(col)
     
     # Build preprocessing pipeline
     preprocessor = build_preprocessor(X, scale_numeric=scale_numeric)
     
+    # ================= PRODUCTION GUARD: CLASS IMBALANCE =================
+    # Auto-inject balancing mechanics to prevent minority-class collapse
+    params = dict(model_params) if model_params else {}
+    
+    if is_classification:
+        if model_name in ["RandomForestClassifier", "LogisticRegression"]:
+            params['class_weight'] = 'balanced'
+            logging.info(f"⚖️ Defensive ML: Injected class_weight='balanced' into {model_name}")
+        elif model_name == "XGBClassifier":
+            if y.nunique() == 2:
+                neg_count = sum(y == 0)
+                pos_count = sum(y == 1)
+                if pos_count > 0:
+                    params['scale_pos_weight'] = float(neg_count) / pos_count
+                    logging.info(f"⚖️ Defensive ML: Injected scale_pos_weight={params['scale_pos_weight']:.2f} into XGB")
+
     # Build complete pipeline
     model_class = MODEL_MAP[model_name]
-    model = model_class(**(model_params or {}))
+    model = model_class(**params)
     
     pipeline = Pipeline(steps=[
         ('preprocessor', preprocessor),
@@ -497,6 +526,7 @@ def train_model(
             "classes": [int(x) for x in np.unique(y)],
             "feature_count": int(X.shape[1]),
             "pipeline_steps": [step[0] for step in pipeline.steps],
+            "leakage_features_dropped": list(leakage_dropped),
             "tuning": tuning_results if tuning_results else None
         }
     else:
@@ -513,6 +543,7 @@ def train_model(
                 "target_range": [float(np.min(y)), float(np.max(y))],
                 "feature_count": int(X.shape[1]),
                 "pipeline_steps": [step[0] for step in pipeline.steps],
+                "leakage_features_dropped": list(leakage_dropped),
                 "tuning": tuning_results if tuning_results else None
             },
         }
